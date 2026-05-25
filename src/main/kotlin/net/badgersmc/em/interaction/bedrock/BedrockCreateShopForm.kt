@@ -3,6 +3,7 @@ package net.badgersmc.em.interaction.bedrock
 import net.badgersmc.em.domain.shop.Shop
 import net.badgersmc.em.domain.shop.ShopRepository
 import org.bukkit.Location
+import org.bukkit.block.Container
 import org.bukkit.entity.Player
 import org.geysermc.cumulus.form.CustomForm
 import org.geysermc.cumulus.response.CustomFormResponse
@@ -20,12 +21,13 @@ class BedrockCreateShopForm(
     private val stallOwner: UUID,
     private val stallId: String,
     private val signLoc: Location,
-    private val containerLoc: Location,
+    private val container: Container,
     private val shopRepository: ShopRepository,
     logger: Logger
 ) : BedrockMenuBase(player, logger) {
 
     override fun buildForm(): CustomForm {
+        val containerLoc = container.location
         return CustomForm.builder()
             .title("Create Shop")
             .label("Set your shop's item and price")
