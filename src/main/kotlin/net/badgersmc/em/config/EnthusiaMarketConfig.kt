@@ -59,8 +59,14 @@ class EnthusiaMarketConfig {
     }
 
     class Shop {
-        @Comment("Tax percentage on trades (decimal)")
+        @Comment("Tax system: enable/disable tax on trades")
+        var taxEnabled: Boolean = true
+        @Comment("Tax percentage on trades (decimal, e.g. 0.02 = 2%)")
         var taxPct: Double = 0.02
+        @Comment("Tax rounding mode: up (ceiling), down (floor), nearest")
+        var taxRounding: String = "nearest"
+        @Comment("Max container linking distance in blocks (sign to container)")
+        var containerLinkMaxDistance: Int = 3
         @Comment("Allow Bedrock players to edit sign content via form")
         var allowBedrockEdit: Boolean = true
     }
