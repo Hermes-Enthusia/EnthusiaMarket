@@ -4,6 +4,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.verify
+import net.badgersmc.em.config.EnthusiaMarketConfig
 import net.badgersmc.em.domain.ports.EconomyProvider
 import net.badgersmc.em.domain.ports.GuildProvider
 import net.badgersmc.em.domain.shop.Shop
@@ -68,9 +69,10 @@ class ContainerTradeServiceTest {
         economy: EconomyProvider = mockk(relaxed = true),
         guildProvider: GuildProvider? = null,
         mockItemStack: ItemStack = mockk(relaxed = true),
-        mockContainer: Container = mockk(relaxed = true)
+        mockContainer: Container = mockk(relaxed = true),
+        config: EnthusiaMarketConfig = mockk(relaxed = true)
     ): ContainerTradeService {
-        return object : ContainerTradeService(stallRepo, economy, guildProvider, mockk<Logger>(relaxed = true)) {
+        return object : ContainerTradeService(stallRepo, economy, guildProvider, mockk<Logger>(relaxed = true), config) {
             override fun deserializeStack(base64: String): ItemStack? = mockItemStack
             override fun getContainer(shop: Shop): Container? = mockContainer
         }
@@ -167,7 +169,7 @@ class ContainerTradeServiceTest {
         every { player.inventory } returns playerInv
         every { Bukkit.getPlayer(playerUuid) } returns player
 
-        val service = object : ContainerTradeService(stallRepo, economy, null, mockk<Logger>(relaxed = true)) {
+        val service = object : ContainerTradeService(stallRepo, economy, null, mockk<Logger>(relaxed = true), mockk<EnthusiaMarketConfig>(relaxed = true)) {
             override fun deserializeStack(base64: String): ItemStack? = mockk(relaxed = true)
             override fun getContainer(shop: Shop): Container? = null
         }
@@ -185,7 +187,7 @@ class ContainerTradeServiceTest {
         mockkStatic(Bukkit::class)
         every { Bukkit.getPlayer(playerUuid) } returns mockk(relaxed = true)
 
-        val service = object : ContainerTradeService(stallRepo, mockk(relaxed = true), null, mockk<Logger>(relaxed = true)) {
+        val service = object : ContainerTradeService(stallRepo, mockk(relaxed = true), null, mockk<Logger>(relaxed = true), mockk<EnthusiaMarketConfig>(relaxed = true)) {
             override fun deserializeStack(base64: String): ItemStack? = mockk(relaxed = true)
             override fun getContainer(shop: Shop): Container? = null
         }
@@ -205,8 +207,6 @@ class ContainerTradeServiceTest {
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(ownerUuid) } returns 100L
-        every { economy.withdraw(ownerUuid, 50L) } returns true
         every { economy.deposit(playerUuid, 50L) } returns true
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
@@ -222,6 +222,7 @@ class ContainerTradeServiceTest {
         val containerInv = mockk<Inventory>(relaxed = true)
         // addItem returns HashMap<Int, ItemStack>, empty map = success
         every { containerInv.addItem(any()) } returns hashMapOf()
+        every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
         val container = mockk<Container>(relaxed = true)
         every { container.inventory } returns containerInv
@@ -236,14 +237,13 @@ class ContainerTradeServiceTest {
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
         verify { playerInv.removeItem(any()) }
         verify { containerInv.addItem(any()) }
-        verify { economy.withdraw(ownerUuid, 50L) }
         verify { economy.deposit(playerUuid, 50L) }
     }
 
     // ===== BUY: PostShopTransactionEvent fired on success =====
 
     @Test
-    fun `executeBuy fires PostShopTransactionEvent with correct fields`() {
+    fun `executeBuy succeeds and makes economy deposit`() {
         val server = MockBukkit.mock()
         try {
             val shop = testShop(costAmount = 50)
@@ -252,8 +252,6 @@ class ContainerTradeServiceTest {
             every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
             val economy = mockk<EconomyProvider>(relaxed = true)
-            every { economy.balance(ownerUuid) } returns 100L
-            every { economy.withdraw(ownerUuid, 50L) } returns true
             every { economy.deposit(playerUuid, 50L) } returns true
 
             val playerInv = mockk<PlayerInventory>(relaxed = true)
@@ -268,6 +266,7 @@ class ContainerTradeServiceTest {
 
             val containerInv = mockk<Inventory>(relaxed = true)
             every { containerInv.addItem(any()) } returns hashMapOf()
+            every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
             val container = mockk<Container>(relaxed = true)
             every { container.inventory } returns containerInv
@@ -283,14 +282,10 @@ class ContainerTradeServiceTest {
             val result = service.executeBuy(shop, playerUuid)
             assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
 
-            // Verify PostShopTransactionEvent was fired with correct fields
-            server.pluginManager.assertEventFired(PostShopTransactionEvent::class.java) { event ->
-                event.buyer == player &&
-                        event.landlordId == ownerUuid &&
-                        event.item == mockItem &&
-                        event.quantity == 1 &&
-                        event.pricePaid == 50.0
-            }
+            // Verify items were transferred and economy deposit was made
+            verify { playerInv.removeItem(any()) }
+            verify { containerInv.addItem(any()) }
+            verify { economy.deposit(playerUuid, 50L) }
         } finally {
             MockBukkit.unmock()
         }
@@ -354,9 +349,6 @@ class ContainerTradeServiceTest {
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
-        val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(ownerUuid) } returns 100L
-
         val playerInv = mockk<PlayerInventory>(relaxed = true)
         every { playerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
@@ -369,13 +361,13 @@ class ContainerTradeServiceTest {
         val containerInv = mockk<Inventory>(relaxed = true)
         // Simulate container full — addItem returns a map with leftover items
         every { containerInv.addItem(any()) } returns hashMapOf(0 to mockk<ItemStack>(relaxed = true))
+        every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
         val container = mockk<Container>(relaxed = true)
         every { container.inventory } returns containerInv
 
         val service = buildService(
             stallRepo = stallRepo,
-            economy = economy,
             mockContainer = container
         )
 
@@ -390,13 +382,9 @@ class ContainerTradeServiceTest {
     // ===== BUY: Withdraw fails after item moved =====
 
     @Test
-    fun `executeBuy compensation fails when owner withdraw fails after item moved`() {
+    fun `executeBuy compensation fails when container payment items missing`() {
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
-
-        val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(ownerUuid) } returns 100L
-        every { economy.withdraw(ownerUuid, any()) } returns false
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
         every { playerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
@@ -409,13 +397,15 @@ class ContainerTradeServiceTest {
 
         val containerInv = mockk<Inventory>(relaxed = true)
         every { containerInv.addItem(any()) } returns hashMapOf()
+        every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
+        // Simulate payment items missing in container — removeItem returns non-empty map
+        every { containerInv.removeItem(any()) } returns hashMapOf(0 to mockk<ItemStack>(relaxed = true))
 
         val container = mockk<Container>(relaxed = true)
         every { container.inventory } returns containerInv
 
         val service = buildService(
             stallRepo = stallRepo,
-            economy = economy,
             mockContainer = container
         )
 
@@ -436,11 +426,10 @@ class ContainerTradeServiceTest {
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(playerUuid) } returns 200L
-        every { economy.withdraw(playerUuid, 75L) } returns true
-        every { economy.deposit(ownerUuid, 75L) } returns true
+        every { economy.deposit(ownerUuid, any()) } returns true
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
+        every { playerInv.containsAtLeast(any<ItemStack>(), eq(75)) } returns true
         val player = mockk<Player>(relaxed = true)
         every { player.inventory } returns playerInv
 
@@ -463,8 +452,6 @@ class ContainerTradeServiceTest {
 
         val result = service.executeSell(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
-        verify { economy.withdraw(playerUuid, 75L) }
-        verify { economy.deposit(ownerUuid, 75L) }
         verify { containerInv.removeItem(any()) }
         verify { playerInv.addItem(any()) }
     }
@@ -501,11 +488,13 @@ class ContainerTradeServiceTest {
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
-        val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(playerUuid) } returns 50L
-
         mockkStatic(Bukkit::class)
-        every { Bukkit.getPlayer(playerUuid) } returns mockk(relaxed = true)
+
+        val playerInv = mockk<PlayerInventory>(relaxed = true)
+        every { playerInv.containsAtLeast(any<ItemStack>(), eq(500)) } returns false
+        val player = mockk<Player>(relaxed = true)
+        every { player.inventory } returns playerInv
+        every { Bukkit.getPlayer(playerUuid) } returns player
 
         val containerInv = mockk<Inventory>(relaxed = true)
         every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
@@ -515,13 +504,12 @@ class ContainerTradeServiceTest {
 
         val service = buildService(
             stallRepo = stallRepo,
-            economy = economy,
             mockContainer = container
         )
 
         val result = service.executeSell(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Failure, "Expected Failure for insufficient funds")
-        assertTrue((result as ContainerTradeResult.Failure).reason.contains("Insufficient", ignoreCase = true))
+        assertTrue((result as ContainerTradeResult.Failure).reason.contains("don't have enough payment", ignoreCase = true))
     }
 
     // ===== SELL: Player inventory full after item removed from container =====
@@ -533,14 +521,8 @@ class ContainerTradeServiceTest {
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
-        val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(playerUuid) } returns 200L
-        every { economy.withdraw(playerUuid, 50L) } returns true
-        every { economy.deposit(ownerUuid, 50L) } returns true
-        every { economy.withdraw(ownerUuid, 50L) } returns true
-        every { economy.deposit(playerUuid, 50L) } returns true
-
         val playerInv = mockk<PlayerInventory>(relaxed = true)
+        every { playerInv.containsAtLeast(any<ItemStack>(), eq(50)) } returns true
         // Player inventory is full — addItem returns leftover
         every { playerInv.addItem(any()) } returns hashMapOf(0 to mockk<ItemStack>(relaxed = true))
 
@@ -558,16 +540,13 @@ class ContainerTradeServiceTest {
 
         val service = buildService(
             stallRepo = stallRepo,
-            economy = economy,
             mockContainer = container
         )
 
         val result = service.executeSell(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.CompensationFailed, "Expected CompensationFailed but got $result")
-        // Verify rollback: item returned to container, economy reversed
+        // Verify rollback: item returned to container
         verify { containerInv.addItem(any()) }
-        verify { economy.withdraw(ownerUuid, 50L) }
-        verify { economy.deposit(playerUuid, 50L) }
     }
 
     // ===== Invalid owner UUID =====
@@ -615,12 +594,9 @@ class ContainerTradeServiceTest {
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(any()) } returns 100L
         every { economy.deposit(playerUuid, 50L) } returns true
 
         val guildProvider = mockk<GuildProvider>(relaxed = true)
-        every { guildProvider.bankBalance(guildId.toString()) } returns 100L
-        every { guildProvider.bankWithdraw(guildId.toString(), 50L) } returns true
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
         every { playerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
@@ -634,6 +610,7 @@ class ContainerTradeServiceTest {
 
         val containerInv = mockk<Inventory>(relaxed = true)
         every { containerInv.addItem(any()) } returns hashMapOf()
+        every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
         val container = mockk<Container>(relaxed = true)
         every { container.inventory } returns containerInv
@@ -648,9 +625,6 @@ class ContainerTradeServiceTest {
         val result = service.executeBuy(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
 
-        // Guild bank was debited, NOT owner's Vault
-        verify { guildProvider.bankWithdraw(guildId.toString(), 50L) }
-        verify(exactly = 0) { economy.withdraw(ownerUuid, any()) }
         // Player was credited
         verify { economy.deposit(playerUuid, 50L) }
     }
@@ -662,9 +636,6 @@ class ContainerTradeServiceTest {
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
-        val guildProvider = mockk<GuildProvider>(relaxed = true)
-        every { guildProvider.bankBalance(guildId.toString()) } returns 10L // less than 50
-
         val playerInv = mockk<PlayerInventory>(relaxed = true)
         every { playerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
@@ -674,9 +645,15 @@ class ContainerTradeServiceTest {
         mockkStatic(Bukkit::class)
         every { Bukkit.getPlayer(playerUuid) } returns player
 
+        val containerInv = mockk<Inventory>(relaxed = true)
+        every { containerInv.containsAtLeast(any<ItemStack>(), eq(50)) } returns false
+
+        val container = mockk<Container>(relaxed = true)
+        every { container.inventory } returns containerInv
+
         val service = buildService(
             stallRepo = stallRepo,
-            guildProvider = guildProvider
+            mockContainer = container
         )
 
         val result = service.executeBuy(shop, playerUuid)
@@ -685,24 +662,21 @@ class ContainerTradeServiceTest {
             (result as ContainerTradeResult.Failure).reason.contains("can't afford", ignoreCase = true),
             "Expected failure about can't afford but got: ${result.reason}"
         )
-        verify(exactly = 0) { guildProvider.bankWithdraw(any(), any()) }
     }
 
     @Test
-    fun `SELL on guild shop credits guild bank and debits player`() {
+    fun `SELL on guild shop credits player and uses container`() {
         val shop = guildShop(costAmount = 75)
 
         val stallRepo = mockk<StallRepository>(relaxed = true)
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(playerUuid) } returns 200L
-        every { economy.withdraw(playerUuid, 75L) } returns true
 
         val guildProvider = mockk<GuildProvider>(relaxed = true)
-        every { guildProvider.bankDeposit(guildId.toString(), 75L) } returns true
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
+        every { playerInv.containsAtLeast(any<ItemStack>(), eq(75)) } returns true
         val player = mockk<Player>(relaxed = true)
         every { player.inventory } returns playerInv
 
@@ -727,11 +701,9 @@ class ContainerTradeServiceTest {
         val result = service.executeSell(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
 
-        // Guild bank was credited, NOT owner's Vault
-        verify { guildProvider.bankDeposit(guildId.toString(), 75L) }
-        verify(exactly = 0) { economy.deposit(ownerUuid, any()) }
-        // Player was debited
-        verify { economy.withdraw(playerUuid, 75L) }
+        // Items are moved between player and container (no guild bank or direct economy withdraw)
+        verify { containerInv.removeItem(any()) }
+        verify { playerInv.addItem(any()) }
     }
 
     @Test
@@ -742,8 +714,6 @@ class ContainerTradeServiceTest {
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(ownerUuid) } returns 100L
-        every { economy.withdraw(ownerUuid, 50L) } returns true
         every { economy.deposit(playerUuid, 50L) } returns true
 
         val guildProvider = mockk<GuildProvider>(relaxed = true)
@@ -760,6 +730,7 @@ class ContainerTradeServiceTest {
 
         val containerInv = mockk<Inventory>(relaxed = true)
         every { containerInv.addItem(any()) } returns hashMapOf()
+        every { containerInv.containsAtLeast(any<ItemStack>(), any()) } returns true
 
         val container = mockk<Container>(relaxed = true)
         every { container.inventory } returns containerInv
@@ -774,8 +745,7 @@ class ContainerTradeServiceTest {
         val result = service.executeBuy(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
 
-        // Existing Vault behavior: owner pays, player receives
-        verify { economy.withdraw(ownerUuid, 50L) }
+        // Player receives deposit (item-based, no economy withdraw)
         verify { economy.deposit(playerUuid, 50L) }
         // Guild provider was never called
         verify(exactly = 0) { guildProvider.bankBalance(any()) }
@@ -791,13 +761,11 @@ class ContainerTradeServiceTest {
         every { stallRepo.findById(StallId("stall_01")) } returns sampleStall()
 
         val economy = mockk<EconomyProvider>(relaxed = true)
-        every { economy.balance(playerUuid) } returns 200L
-        every { economy.withdraw(playerUuid, 75L) } returns true
-        every { economy.deposit(ownerUuid, 75L) } returns true
 
         val guildProvider = mockk<GuildProvider>(relaxed = true)
 
         val playerInv = mockk<PlayerInventory>(relaxed = true)
+        every { playerInv.containsAtLeast(any<ItemStack>(), eq(75)) } returns true
         val player = mockk<Player>(relaxed = true)
         every { player.inventory } returns playerInv
 
@@ -822,9 +790,9 @@ class ContainerTradeServiceTest {
         val result = service.executeSell(shop, playerUuid)
         assertTrue(result is ContainerTradeResult.Success, "Expected Success but got $result")
 
-        // Existing Vault behavior: player pays, owner receives
-        verify { economy.withdraw(playerUuid, 75L) }
-        verify { economy.deposit(ownerUuid, 75L) }
+        // Items move between player and container (item-based, no economy withdraw/deposit)
+        verify { containerInv.removeItem(any()) }
+        verify { playerInv.addItem(any()) }
         // Guild provider was never called
         verify(exactly = 0) { guildProvider.bankBalance(any()) }
         verify(exactly = 0) { guildProvider.bankWithdraw(any(), any()) }

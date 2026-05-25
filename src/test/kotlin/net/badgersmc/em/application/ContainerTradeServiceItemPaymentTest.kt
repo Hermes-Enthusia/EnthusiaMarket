@@ -86,7 +86,7 @@ class ContainerTradeServiceItemPaymentTest {
         costStack: ItemStack = mockk(relaxed = true),
         mockContainer: Container = mockk(relaxed = true)
     ): ContainerTradeService {
-        return object : ContainerTradeService(stallRepo, economy, guildProvider, mockk<Logger>(relaxed = true)) {
+        return object : ContainerTradeService(stallRepo, economy, guildProvider, mockk<Logger>(relaxed = true), config) {
             override fun deserializeStack(base64: String): ItemStack? {
                 return when (base64) {
                     "sellItemBase64" -> sellStack

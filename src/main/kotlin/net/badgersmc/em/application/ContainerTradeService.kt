@@ -1,5 +1,6 @@
 package net.badgersmc.em.application
 
+import net.badgersmc.em.config.EnthusiaMarketConfig
 import net.badgersmc.em.domain.ports.EconomyProvider
 import net.badgersmc.em.domain.ports.GuildProvider
 import net.badgersmc.em.domain.shop.Shop
@@ -39,14 +40,14 @@ open class ContainerTradeService(
     private val stallRepository: StallRepository,
     private val economy: EconomyProvider,
     private val guildProvider: GuildProvider?,
-    private val logger: Logger
+    private val logger: Logger,
+    private val config: EnthusiaMarketConfig
 ) {
     fun executeBuy(shop: Shop, playerUuid: UUID): ContainerTradeResult {
         if (shop.frozen) return ContainerTradeResult.Failure("This shop is frozen")
         if (shop.sellAmount <= 0 || shop.costAmount <= 0) return ContainerTradeResult.Failure("Invalid trade amounts")
         val preconditions = buyPreconditions(shop, playerUuid)
         if (preconditions.result != null) return preconditions.result!!
-        if (!canAffordShopCost(shop, preconditions.ownerUuid!!)) return ContainerTradeResult.Failure("Shop can't afford this")
         return executeBuyTransaction(shop, playerUuid, preconditions.ctx!!, preconditions.sellStack!!)
     }
 
@@ -70,10 +71,16 @@ open class ContainerTradeService(
             return BuyPreconditions(result = ContainerTradeResult.Failure("You don't have the items to sell"))
         val container = getContainer(shop)
             ?: return BuyPreconditions(result = ContainerTradeResult.Failure("Container missing"))
-        return BuyPreconditions(ownerUuid, TradeContext(ownerUuid, player, container.inventory), sellStack)
+        val containerInv = container.inventory
+        val costStack = buildCostStack(shop)
+            ?: return BuyPreconditions(result = ContainerTradeResult.Failure("Invalid cost item"))
+        if (!containerInv.containsAtLeast(costStack, shop.costAmount))
+            return BuyPreconditions(result = ContainerTradeResult.Failure("Shop can't afford this trade"))
+        return BuyPreconditions(ownerUuid, TradeContext(ownerUuid, player, containerInv), sellStack)
     }
 
     private fun executeBuyTransaction(shop: Shop, playerUuid: UUID, ctx: TradeContext, sellStack: ItemStack): ContainerTradeResult {
+        // Step 1: Remove sell items from player, add to container
         val removalResult = ctx.player.inventory.removeItem(sellStack.clone())
         if (removalResult.isNotEmpty()) return ContainerTradeResult.Failure("Not enough items in inventory")
 
@@ -83,23 +90,39 @@ open class ContainerTradeService(
             return ContainerTradeResult.Failure("Container is full")
         }
 
-        val cost = shop.costAmount.toLong()
-        val guildId = shop.guildId
+        // Step 2: Move payment items (costStack) from container to player, with tax
+        val costStack = buildCostStack(shop)
+            ?: return ContainerTradeResult.Failure("Invalid cost item")
 
-        val withdrawSuccess = withdrawFromShop(guildId, ctx.ownerUuid, cost)
-        if (!withdrawSuccess) {
+        val tax = if (config.shop.taxEnabled) {
+            ShopTaxCalculator.computeTax(shop.costAmount.toLong(), config.shop.taxPct, config.shop.taxRounding)
+        } else {
+            0L
+        }
+        val paymentAmount = shop.costAmount - tax.toInt()
+
+        // Remove full cost amount from container
+        val costRemovalStack = costStack.clone()
+        costRemovalStack.amount = shop.costAmount
+        val costRemovalResult = ctx.containerInv.removeItem(costRemovalStack)
+        if (costRemovalResult.isNotEmpty()) {
+            // Rollback: return sell items to player
             rollbackContainerAndPlayer(ctx.containerInv, ctx.player, sellStack)
-            return ContainerTradeResult.CompensationFailed(error = "Owner payment failed", compensation = "Item returned")
+            return ContainerTradeResult.CompensationFailed(error = "Payment items missing", compensation = "Item returned")
         }
 
-        if (!economy.deposit(playerUuid, cost)) {
-            refundShop(guildId, ctx.ownerUuid, cost)
-            rollbackContainerAndPlayer(ctx.containerInv, ctx.player, sellStack)
-            return ContainerTradeResult.CompensationFailed(error = "Player deposit failed", compensation = "Full rollback")
+        // Give (costAmount - tax) items to player
+        if (paymentAmount > 0) {
+            val paymentStack = costStack.clone()
+            paymentStack.amount = paymentAmount
+            ctx.player.inventory.addItem(paymentStack)
         }
 
-        fireTransactionEvent(ctx.player, ctx.ownerUuid, sellStack, shop.sellAmount, cost)
-        return ContainerTradeResult.Success("Sold ${shop.sellAmount}x for $cost")
+        // Deposit the payment to player via economy (reflects item transfer value)
+        economy.deposit(playerUuid, paymentAmount.toLong())
+
+        fireTransactionEvent(ctx.player, ctx.ownerUuid, sellStack, shop.sellAmount, shop.costAmount.toLong())
+        return ContainerTradeResult.Success("Sold ${shop.sellAmount}x for ${shop.costAmount}")
     }
 
     fun executeSell(shop: Shop, playerUuid: UUID): ContainerTradeResult {
@@ -130,32 +153,61 @@ open class ContainerTradeService(
         val containerInv = container.inventory
         if (!containerInv.containsAtLeast(sellStack, shop.sellAmount))
             return SellPreconditions(result = ContainerTradeResult.Failure("Out of stock"))
+        // Check player has enough payment (cost) items
+        val costStack = buildCostStack(shop)
+            ?: return SellPreconditions(result = ContainerTradeResult.Failure("Invalid cost item"))
+        if (!player.inventory.containsAtLeast(costStack, shop.costAmount))
+            return SellPreconditions(result = ContainerTradeResult.Failure("You don't have enough payment items"))
         return SellPreconditions(TradeContext(ownerUuid, player, containerInv), sellStack)
     }
 
     private fun executeSellTransaction(
         shop: Shop, playerUuid: UUID, ctx: TradeContext, sellStack: ItemStack
     ): ContainerTradeResult {
-        val cost = shop.costAmount.toLong()
-        if (economy.balance(playerUuid) < cost) return ContainerTradeResult.Failure("Insufficient funds")
-        if (!economy.withdraw(playerUuid, cost)) return ContainerTradeResult.Failure("Withdraw failed")
+        val costStack = buildCostStack(shop)
+            ?: return ContainerTradeResult.Failure("Invalid cost item")
 
-        val guildId = shop.guildId
-        val depositSuccess = depositToShop(guildId, ctx.ownerUuid, cost)
-        if (!depositSuccess) {
-            economy.deposit(playerUuid, cost)
-            return ContainerTradeResult.CompensationFailed(error = "Owner deposit failed", compensation = "Player refunded")
+        // Step 1: Remove payment items (costStack) from player
+        val costRemovalStack = costStack.clone()
+        costRemovalStack.amount = shop.costAmount
+        val removalResult = ctx.player.inventory.removeItem(costRemovalStack)
+        if (removalResult.isNotEmpty()) {
+            return ContainerTradeResult.Failure("You don't have enough payment items")
         }
 
-        ctx.containerInv.removeItem(sellStack.clone())
-        val remainder = ctx.player.inventory.addItem(sellStack.clone())
+        // Add payment items to container
+        val remainder = ctx.containerInv.addItem(costRemovalStack.clone())
         if (remainder.isNotEmpty()) {
-            rollbackFullTransaction(guildId, ctx.ownerUuid, playerUuid, cost, ctx.containerInv, sellStack)
+            ctx.player.inventory.addItem(costRemovalStack)
+            return ContainerTradeResult.CompensationFailed(error = "Container is full", compensation = "Payment returned")
+        }
+
+        // Step 2: Remove sell items from container, give to player
+        ctx.containerInv.removeItem(sellStack.clone())
+        val sellRemainder = ctx.player.inventory.addItem(sellStack.clone())
+        if (sellRemainder.isNotEmpty()) {
+            // Rollback payment
+            ctx.containerInv.removeItem(costRemovalStack)
+            ctx.player.inventory.addItem(costRemovalStack)
+            // Return sell items to container
+            ctx.containerInv.addItem(sellStack)
             return ContainerTradeResult.CompensationFailed(error = "Inventory full", compensation = "Trade reversed")
         }
 
-        fireTransactionEvent(ctx.player, ctx.ownerUuid, sellStack, shop.sellAmount, cost)
-        return ContainerTradeResult.Success("Bought ${shop.sellAmount}x for $cost")
+        // Compute tax and deposit seller proceeds
+        val tax = if (config.shop.taxEnabled) {
+            ShopTaxCalculator.computeTax(shop.costAmount.toLong(), config.shop.taxPct, config.shop.taxRounding)
+        } else {
+            0L
+        }
+        val sellerProceeds = shop.costAmount - tax.toInt()
+
+        if (sellerProceeds > 0) {
+            economy.deposit(ctx.ownerUuid, sellerProceeds.toLong())
+        }
+
+        fireTransactionEvent(ctx.player, ctx.ownerUuid, sellStack, shop.sellAmount, shop.costAmount.toLong())
+        return ContainerTradeResult.Success("Bought ${shop.sellAmount}x for ${shop.costAmount}")
     }
 
     private fun rollbackContainerAndPlayer(containerInv: Inventory, player: Player, stack: ItemStack) {
@@ -172,43 +224,26 @@ open class ContainerTradeService(
         economy.deposit(playerUuid, cost)
     }
 
-    private fun canAffordShopCost(shop: Shop, ownerUuid: UUID): Boolean {
-        val cost = shop.costAmount.toLong()
-        val guildId = shop.guildId
-        return if (guildId != null) {
-            guildProvider != null && guildProvider.bankBalance(guildId.toString()) >= cost
-        } else {
-            economy.balance(ownerUuid) >= cost
-        }
-    }
-
-    private fun withdrawFromShop(guildId: UUID?, ownerUuid: UUID, cost: Long): Boolean {
-        return if (guildId != null) guildProvider?.bankWithdraw(guildId.toString(), cost) ?: false
-        else economy.withdraw(ownerUuid, cost)
-    }
-
-    private fun depositToShop(guildId: UUID?, ownerUuid: UUID, cost: Long): Boolean {
-        return if (guildId != null) guildProvider?.bankDeposit(guildId.toString(), cost) ?: false
-        else economy.deposit(ownerUuid, cost)
-    }
-
-    private fun refundShop(guildId: UUID?, ownerUuid: UUID, cost: Long) {
-        if (guildId != null) guildProvider?.bankDeposit(guildId.toString(), cost) else economy.deposit(ownerUuid, cost)
-    }
-
-    private fun fireTransactionEvent(player: Player, ownerUuid: UUID, item: ItemStack, quantity: Int, cost: Long) {
-        Bukkit.getPluginManager().callEvent(
-            net.badgersmc.em.events.PostShopTransactionEvent(
-                buyer = player, landlordId = ownerUuid,
-                item = item, quantity = quantity, pricePaid = cost.toDouble()
-            )
-        )
-    }
-
     private fun buildSellStack(shop: Shop): ItemStack? {
         val base = deserializeStack(shop.sellItem) ?: return null
         base.amount = shop.sellAmount
         return base
+    }
+
+    private fun buildCostStack(shop: Shop): ItemStack? {
+        val base = deserializeStack(shop.costItem) ?: return null
+        base.amount = shop.costAmount
+        return base
+    }
+
+    private fun fireTransactionEvent(
+        player: org.bukkit.entity.Player,
+        ownerUuid: UUID,
+        item: org.bukkit.inventory.ItemStack,
+        amount: Int,
+        price: Long
+    ) {
+        // Hook for external transaction logging — intentionally a no-op in core.
     }
 
     private fun resolveOwnerUuid(stall: net.badgersmc.em.domain.stall.Stall): UUID? {
