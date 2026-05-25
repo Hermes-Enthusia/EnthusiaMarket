@@ -6,6 +6,7 @@ import net.badgersmc.em.domain.stall.OwnerRef
 import net.badgersmc.em.domain.stall.RentTerms
 import net.badgersmc.em.domain.stall.Stall
 import net.badgersmc.em.domain.stall.StallId
+import net.badgersmc.em.config.EnthusiaMarketConfig
 import net.badgersmc.em.domain.stall.StallState
 import net.badgersmc.em.domain.shop.ShopRepository
 import net.badgersmc.em.domain.stall.StallRepository
@@ -87,7 +88,13 @@ class ShopCreatedEventTest {
             rentTerms = RentTerms.formula(0.01)
         )
 
-        val listener = object : ShopCreateListener(stallRepo, shopRepo) {
+        val config = mockk<EnthusiaMarketConfig>(relaxed = true) {
+            every { shop.containerLinkMaxDistance } returns 3
+            every { shop.taxEnabled } returns true
+            every { shop.taxPct } returns 0.02
+            every { shop.taxRounding } returns "nearest"
+        }
+        val listener = object : ShopCreateListener(stallRepo, shopRepo, config) {
             override fun findStallAt(location: Location): Stall? = stall
             override fun canManageStall(stall: Stall, player: Player): Boolean = true
         }

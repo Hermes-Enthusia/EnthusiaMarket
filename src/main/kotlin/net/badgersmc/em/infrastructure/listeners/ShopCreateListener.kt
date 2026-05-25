@@ -2,11 +2,14 @@ package net.badgersmc.em.infrastructure.listeners
 
 import com.sk89q.worldedit.bukkit.BukkitAdapter
 import com.sk89q.worldguard.WorldGuard
+import net.badgersmc.em.config.EnthusiaMarketConfig
+import net.badgersmc.em.domain.ports.GuildProvider
 import net.badgersmc.em.domain.shop.ShopRepository
 import net.badgersmc.em.domain.stall.OwnerType
 import net.badgersmc.em.domain.stall.Stall
 import net.badgersmc.em.domain.stall.StallRepository
-import net.badgersmc.em.domain.ports.GuildProvider
+import net.badgersmc.em.interaction.Menu
+import net.badgersmc.em.interaction.gui.CreateShopMenu
 import net.badgersmc.nexus.annotations.Component
 import net.badgersmc.nexus.annotations.PostConstruct
 import org.bukkit.Bukkit
@@ -31,7 +34,9 @@ import java.util.logging.Logger
 open class ShopCreateListener(
     private val stallRepository: StallRepository,
     private val shopRepository: ShopRepository,
-    private val guildProvider: GuildProvider? = null
+    private val config: EnthusiaMarketConfig,
+    private val guildProvider: GuildProvider? = null,
+    private val menuFactory: ((Player, Container, String, Location, ShopRepository) -> Menu)? = null
 ) : Listener {
 
     @PostConstruct
@@ -86,12 +91,33 @@ open class ShopCreateListener(
             return
         }
 
+        // Check container link distance (TDD-81)
+        val attachedLoc = attachedBlock.location
+        val maxDist = config.shop.containerLinkMaxDistance
+        if (!isWithinLinkDistance(
+                loc.blockX, loc.blockY, loc.blockZ,
+                attachedLoc.blockX, attachedLoc.blockY, attachedLoc.blockZ,
+                maxDist
+            )
+        ) {
+            event.player.sendMessage("§cContainer is too far away (max $maxDist blocks)")
+            return
+        }
+
+        // Check container is within the same stall region (TDD-82)
+        val containerStall = findStallAt(attachedLoc)
+        if (containerStall == null || containerStall.id != stall.id) {
+            event.player.sendMessage("§cContainer must be inside the same stall region")
+            return
+        }
+
         event.setUseInteractedBlock(Event.Result.DENY)
 
-        // Note: ShopCreatedEvent is fired after successful persistence in the shop creation flow
-
-        // Open CreateShopMenu — for now just a placeholder
-        event.player.sendMessage("§e[Shop] Create menu would open here (TDD-52)")
+        // Open the shop creation menu
+        val container = attachedBlock.state as Container
+        val menu = menuFactory?.invoke(event.player, container, stall.id.value, loc, shopRepository)
+            ?: CreateShopMenu(event.player, container, stall.id.value, loc, shopRepository)
+        menu.open(event.player)
     }
 
     open fun findStallAt(location: Location): Stall? {
