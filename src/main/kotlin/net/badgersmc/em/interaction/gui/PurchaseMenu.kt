@@ -5,6 +5,7 @@ import com.github.stefvanschie.inventoryframework.gui.type.ChestGui
 import com.github.stefvanschie.inventoryframework.pane.StaticPane
 import net.badgersmc.em.application.ContainerTradeResult
 import net.badgersmc.em.application.ContainerTradeService
+import net.badgersmc.em.config.EnthusiaMarketConfig
 import net.badgersmc.em.domain.shop.Shop
 import net.badgersmc.em.interaction.Menu
 import org.bukkit.Material
@@ -18,7 +19,8 @@ import org.bukkit.inventory.ItemStack
  */
 class PurchaseMenu(
     private val shop: Shop,
-    private val tradeService: ContainerTradeService
+    private val tradeService: ContainerTradeService,
+    private val config: EnthusiaMarketConfig = EnthusiaMarketConfig()
 ) : Menu {
 
     override fun open(player: Player) {
