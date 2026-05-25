@@ -113,6 +113,38 @@ Each requirement carries a stable ID. Tasks reference requirements by ID. New re
 
 ---
 
+## M7 — Shop UX, Item Payments, Tax, Container Linking
+
+### REQ-028 — Guided shop creation GUI
+
+**Event-driven.** WHEN a player left-clicks while sneaking on a wall sign attached to a container within a stall they manage THE SYSTEM SHALL open a step-by-step creation GUI that allows the player to select the sell item from the container, select the payment item type, and set the amounts per trade — instead of requiring sign text formatting.
+
+### REQ-029 — Arbitrary item payment
+
+**Ubiquitous.** THE SYSTEM SHALL allow any ItemStack (diamonds, netherite ingots, gold ingots, etc.) as the cost/payment item for a shop trade — not only Vault economy currency.
+
+### REQ-030 — Configurable container link distance
+
+**Event-driven.** WHEN a player creates a shop and links a sign to a container THE SYSTEM SHALL enforce that the container is within the configured maximum link distance (default: 3 blocks) from the sign.
+
+### REQ-031 — Container link must be within stall region
+
+**Event-driven.** WHEN a player creates a shop and links a sign to a container THE SYSTEM SHALL enforce that both the sign AND the container are within the same stall's WorldGuard region — links across region boundaries or to containers outside any stall are rejected.
+
+### REQ-032 — Configurable tax system
+
+**Ubiquitous.** THE SYSTEM SHALL provide a per-shop-configurable tax rate applied to each trade. The tax system SHALL be toggleable in the global config. When enabled, each trade deducts the configured percentage as tax from the seller's proceeds. Tax rounding SHALL be configurable: round up (ceiling), round down (floor), or round to nearest.
+
+### REQ-033 — Tax display in trade GUI
+
+**Event-driven.** WHEN a player opens a shop's trade GUI THE SYSTEM SHALL display the tax-inclusive price and the tax amount so the player knows the real cost before confirming the trade.
+
+### REQ-034 — Bedrock shop trade form
+
+**Event-driven.** WHEN a Bedrock player right-clicks a registered shop sign THE SYSTEM SHALL open a Cumulus modal form showing the item, price (with tax), stock, and confirm/cancel buttons instead of the Java IFramework GUI.
+
+---
+
 ## Interfaces & contracts
 
 ### REQ-020 — Persistence backend

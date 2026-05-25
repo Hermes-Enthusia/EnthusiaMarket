@@ -392,3 +392,65 @@ References: REQ-024 through REQ-027
 4. Task size ceiling: ~1500 tokens of full briefing. If larger, split.
 5. A task MUST be achievable by a single SPEAR cycle (`spec → prove → engine → arch → refine` for TDD; `spec → arch → refine` for DOC/INFRA).
 6. Mark state as work proceeds: `[~]` when entering `spec`; `[x]` only when `/spear:refine` has cleared state to `idle`.
+
+---
+
+## Milestone M7 — Shop UX overhaul, item payments, tax system, container linking
+
+References: REQ-028 through REQ-034
+
+### INFRA tasks
+
+- [ ] **INFRA-12** — Add M7 config fields
+  References: REQ-030, REQ-032
+  Tag: INFRA
+  Description: Add to EnthusiaMarketConfig.Shop: containerLinkMaxDistance (Int, default 3), taxEnabled (Boolean, default true), taxPct (Double, default 0.02), taxRounding (String, default "nearest" — values: "up", "down", "nearest"). Tax config is runtime-only (config.yml, no DB migration needed).
+
+### TDD tasks
+
+- [ ] **TDD-80** — Configurable tax system with rounding
+  References: REQ-032, REQ-033
+  Tag: TDD
+  Description: Failing test: ShopTaxCalculator.computeTax(amount, taxPct, rounding) returns correct tax for rounding modes up/down/nearest. Tax disabled returns 0. Tax-inclusive price displayed to player includes tax. Confirm red.
+
+- [ ] **TDD-81** — Container link distance validation
+  References: REQ-030
+  Tag: TDD
+  Description: Failing test: attempting to link a container beyond containerLinkMaxDistance blocks creation with error message. Within distance succeeds. Default max is 3 blocks. Confirm red.
+
+- [ ] **TDD-82** — Container link must be within stall region
+  References: REQ-031
+  Tag: TDD
+  Description: Failing test: sign inside stall region + container outside region → link rejected. Both inside same region → accepted. Container outside any stall region → rejected. Confirm red.
+
+- [ ] **TDD-83** — CreateShopMenu GUI (Java, step-by-step)
+  References: REQ-028, REQ-014
+  Tag: TDD
+  Description: Failing test (MockBukkit): shift-left-click wall sign on container in owned stall → step 1: select sell item from container inventory → step 2: select payment item type from material list → step 3: set sell amount + cost amount per trade → confirm creates Shop with serialized ItemStacks. Confirm red.
+
+- [ ] **TDD-84** — Item-based payment in ContainerTradeService
+  References: REQ-029
+  Tag: TDD
+  Description: Failing test: BUY trade at shop with costItem=diamond checks player inventory for diamonds (not Vault balance), removes diamonds, gives sell item. SELL trade: player sells item, receives payment item. Tax deducted from seller proceeds as items. Confirm red.
+
+- [ ] **TDD-85** — PurchaseMenu shows real items + tax-inclusive price
+  References: REQ-033, REQ-014
+  Tag: TDD
+  Description: Failing test: PurchaseMenu displays actual sell ItemStack icon, actual cost ItemStack icon, tax amount, and total price including tax (not placeholder materials). Confirm red.
+
+- [ ] **TDD-86** — Bedrock PurchaseMenu Cumulus form
+  References: REQ-034, REQ-011
+  Tag: TDD
+  Description: Failing test: Bedrock player right-clicks shop sign → Cumulus modal form opens showing item name, price with tax, stock count, confirm/cancel. Trade executes on confirm. Confirm red.
+
+- [ ] **TDD-87** — Bedrock CreateShopMenu Cumulus form
+  References: REQ-028, REQ-034
+  Tag: TDD
+  Description: Failing test: Bedrock player shift-left-clicks wall sign → Cumulus step form: select sell item, select payment item, set amounts. Shop persisted correctly. Confirm red.
+
+### DOC tasks
+
+- [ ] **DOC-10** — Update player-facing documentation
+  References: REQ-028, REQ-029, REQ-032, REQ-033
+  Tag: DOC
+  Description: Update docs/README.md with new shop creation flow (GUI-based, no sign text formatting), item-based payment explanation, tax display behavior, container link distance limit.
