@@ -27,6 +27,8 @@ sealed class AuctionResult {
     data class Failure(val reason: String) : AuctionResult()
     /** Referenced auction was not found. */
     data object NotFound : AuctionResult()
+    /** Mass auction launch completed — see counts and created IDs. */
+    data class MassLaunched(val report: MassAuctionReport) : AuctionResult()
 }
 
 /**
@@ -121,7 +123,7 @@ class AuctionLifecycleService(
      * @return [MassAuctionReport] with counts and the new auction ids, or
      *         [AuctionResult.Failure] when inputs fail validation
      */
-    fun startMassAuction(startingBid: Long, durationStr: String?): Any {
+    fun startMassAuction(startingBid: Long, durationStr: String?): AuctionResult {
         validateStartingBid(startingBid)?.let { return it }
         val duration = resolveDuration(durationStr)
             ?: return AuctionResult.Failure("Invalid auction duration: '$durationStr'")
@@ -160,11 +162,13 @@ class AuctionLifecycleService(
             }
         }
 
-        return MassAuctionReport(
-            created = created.size,
-            skipped = skipped,
-            errors = errors,
-            auctionIds = created
+        return AuctionResult.MassLaunched(
+            MassAuctionReport(
+                created = created.size,
+                skipped = skipped,
+                errors = errors,
+                auctionIds = created
+            )
         )
     }
 

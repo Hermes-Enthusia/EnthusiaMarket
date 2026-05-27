@@ -65,7 +65,10 @@ class AuctionBrowserMenu(
         gui.show(player)
 
         val task: BukkitTask = Bukkit.getScheduler().runTaskTimer(plugin, Runnable {
-            if (player.openInventory.topInventory != gui.inventory) return@Runnable
+            if (!player.isOnline || player.openInventory.topInventory != gui.inventory) {
+                task.cancel()
+                return@Runnable
+            }
             render(gui)
             gui.update()
         }, REFRESH_TICKS, REFRESH_TICKS)

@@ -23,11 +23,23 @@ jobs:
 
       - name: Build & publish Nexus to mavenLocal
         run: |
-          git clone --depth 1 https://github.com/BadgersMC/nexus.git "$RUNNER_TEMP/nexus"
+          git clone --depth 1 --branch feat/nexus-modules-1.11.0 https://github.com/BadgersMC/nexus.git "$RUNNER_TEMP/nexus"
           cd "$RUNNER_TEMP/nexus"
           # nexus repo is missing gradle/wrapper/gradle-wrapper.jar, so invoke the
           # installed gradle directly instead of ./gradlew.
-          gradle :nexus-core:publishToMavenLocal :nexus-paper:publishToMavenLocal --no-daemon
+          gradle \
+            :nexus-core:publishToMavenLocal \
+            :nexus-paper:publishToMavenLocal \
+            :nexus-resources:publishToMavenLocal \
+            :nexus-i18n:publishToMavenLocal \
+            :nexus-persistence:publishToMavenLocal \
+            :nexus-scheduler:publishToMavenLocal \
+            :nexus-paper-loader:publishToMavenLocal \
+            :nexus-paper-gui:publishToMavenLocal \
+            :nexus-paper-bedrock:publishToMavenLocal \
+            :nexus-paper-listeners:publishToMavenLocal \
+            :nexus-vault:publishToMavenLocal \
+            --no-daemon
 
       - name: Build RoseChat (fork) shadowJar
         run: |

@@ -3,7 +3,6 @@ package net.badgersmc.em.infrastructure.commands
 import net.badgersmc.em.application.AuctionLifecycleService
 import net.badgersmc.em.application.AuctionResult
 import net.badgersmc.em.application.ImportStallsService
-import net.badgersmc.em.application.MassAuctionReport
 import net.badgersmc.em.config.EnthusiaMarketConfig
 import net.badgersmc.em.domain.auction.AuctionId
 import net.badgersmc.em.domain.auction.AuctionRepository
@@ -132,11 +131,11 @@ class AdminCommands(
         @Arg("duration") duration: String? = null
     ) {
         val component = when (val result = auctionService.startMassAuction(price, duration)) {
-            is MassAuctionReport -> lang.msg(
+            is AuctionResult.MassLaunched -> lang.msg(
                 "admin.auction.startall.result",
-                "created" to result.created,
-                "skipped" to result.skipped,
-                "errors" to result.errors
+                "created" to result.report.created,
+                "skipped" to result.report.skipped,
+                "errors" to result.report.errors
             )
             is AuctionResult.Failure -> lang.msg("admin.auction.startall.failure", "reason" to result.reason)
             else -> lang.msg("admin.auction.startall.unexpected")
