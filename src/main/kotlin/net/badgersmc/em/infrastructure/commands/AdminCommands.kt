@@ -429,6 +429,48 @@ class AdminCommands(
         sender.sendMessage(msg)
     }
 
+    // ----- Stall info (TDD-230) -----
+
+    @Subcommand("stall info")
+    @Permission("enthusiamarket.stall.info")
+    fun stallInfo(
+        @Context sender: CommandSender,
+        @Arg("stall") stall: String,
+    ) {
+        val found = stalls.findById(StallId(stall))
+        if (found == null) {
+            sender.sendMessage(lang.msg("stall.info.not_found", "stall" to stall))
+            return
+        }
+        val ownerDisplay = when (found.owner.type) {
+            net.badgersmc.em.domain.stall.OwnerType.NONE -> "<gray>none"
+            net.badgersmc.em.domain.stall.OwnerType.SOLO ->
+                runCatching {
+                    org.bukkit.Bukkit.getOfflinePlayer(java.util.UUID.fromString(found.owner.id)).name
+                        ?: found.owner.id
+                }.getOrElse { found.owner.id }
+            net.badgersmc.em.domain.stall.OwnerType.GUILD -> "Guild:${found.owner.id}"
+        }
+        val membersDisplay = found.members.size.toString()
+        val maxMembersDisplay = if (found.maxMembers < 0) "∞" else found.maxMembers.toString()
+        val rentDisplay = found.rentTerms.toString()
+        val nextRentDisplay = found.nextRentAt?.toString() ?: "N/A"
+        val availableDisplay = (found.state == net.badgersmc.em.domain.stall.StallState.UNOWNED).toString()
+        sender.sendMessage(
+            lang.msg(
+                "stall.info.card",
+                "id" to found.id,
+                "state" to found.state,
+                "owner" to ownerDisplay,
+                "members" to membersDisplay,
+                "maxMembers" to maxMembersDisplay,
+                "rent" to rentDisplay,
+                "nextRent" to nextRentDisplay,
+                "available" to availableDisplay,
+            )
+        )
+    }
+
     // ----- WG resync (operator backfill) -----
 
     @Subcommand("rg resync")

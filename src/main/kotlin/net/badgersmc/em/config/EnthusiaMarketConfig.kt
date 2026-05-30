@@ -26,6 +26,24 @@ class EnthusiaMarketConfig {
     var lang: Lang = Lang()
     @Comment("Purchase-sign trigger token + permissions (REQ-250..253)")
     var signs: Signs = Signs()
+    @Comment("Schematic save/restore settings")
+    var schematics: Schematics = Schematics()
+    @Comment("Particle effect settings")
+    var particles: Particles = Particles()
+
+    class Schematics {
+        @Comment("Enable schematic save/restore features")
+        var enabled: Boolean = true
+        @Comment("Directory (relative to plugin data folder) where schematics are stored")
+        var directory: String = "schematics"
+    }
+
+    class Particles {
+        @Comment("Enable particle effects")
+        var enabled: Boolean = true
+        @Comment("Maximum particle effects dispatched per tick across all stalls")
+        var maxPerTick: Int = 200
+    }
 
     class Signs {
         @Comment("First-line token a player writes to register a purchase sign (e.g. [em]).")
@@ -52,6 +70,21 @@ class EnthusiaMarketConfig {
             "best value per dimension across all granted groups (REQ-211). -1 means unlimited."
     )
     var limits: MutableMap<String, LimitGroup> = mutableMapOf()
+
+    @Comment(
+        "Entity limit groups keyed by region-kind name. Each group defines per-entity-type " +
+            "caps and a total cap for entities allowed inside stalls of that region kind. " +
+            "-1 means unlimited. Missing keys fall back to UNLIMITED."
+    )
+    var entitylimits: MutableMap<String, EntityLimitGroupConfig> = mutableMapOf()
+
+    class EntityLimitGroupConfig {
+        @Comment("Per-entity-type caps. Key is the EntityType name (e.g. VILLAGER). -1 = unlimited.")
+        var perType: MutableMap<String, Int> = mutableMapOf()
+
+        @Comment("Total entity ceiling across all types for this region kind. -1 = unlimited.")
+        var total: Int = -1
+    }
 
     class LimitGroup {
         @Comment("Maximum total stalls a player in this group may own. -1 = unlimited.")

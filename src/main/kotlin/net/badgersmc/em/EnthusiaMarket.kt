@@ -50,6 +50,9 @@ open class EnthusiaMarket : JavaPlugin() {
         // Phase 3: Read config from Nexus for database + i18n + scheduler bootstrap.
         val cfg = ctx.getBean<EnthusiaMarketConfig>()
 
+        // Ensure schematics directory exists (INFRA-20)
+        File(dataFolder, cfg.schematics.directory).mkdirs()
+
         // i18n service — wired manually since LangService lives outside the EM scan package.
         val lang = LangService(this, Locale(cfg.lang.locale), EnthusiaMarketLang::class.java)
         ctx.registerBean("langService", LangService::class, lang)

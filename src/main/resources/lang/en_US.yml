@@ -78,6 +78,9 @@ purchase_sign:
     not_owner: "<prefix><red>You do not own</red> <aqua><stall>"
 
 stall:
+  info:
+    card: "<prefix><gold>Stall <aqua><id></aqua>\n<gray>State: <state>\nOwner: <owner>\nMembers: <members>/<maxMembers>\nRent: <rent>\nNext rent: <nextRent>\nAvailable: <available>"
+    not_found: "<prefix><red>Stall not found:</red> <stall>"
   members:
     added: "<prefix><green>Added</green> <player> <gray>as a member of</gray> <aqua><stall>"
     removed: "<prefix><yellow>Removed</yellow> <player> <gray>from</gray> <aqua><stall>"

@@ -1,0 +1,24 @@
+# Entity limit groups for EnthusiaMarket stall regions
+# Key = region kind name matching stall.regionKind
+# -1 = unlimited
+default:
+  total: 50
+  per_type:
+    VILLAGER: 5
+    ARMOR_STAND: 10
+    ITEM_FRAME: 20
+
+shop:
+  total: 30
+  per_type:
+    VILLAGER: 3
+    ARMOR_STAND: 5
+    ITEM_FRAME: 10
+
+farm:
+  total: 100
+  per_type:
+    COW: 20
+    SHEEP: 20
+    PIG: 20
+    CHICKEN: 20
