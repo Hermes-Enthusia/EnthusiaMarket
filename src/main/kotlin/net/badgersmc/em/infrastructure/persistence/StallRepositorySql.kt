@@ -30,8 +30,9 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
             conn.prepareStatement(
                 """INSERT INTO stalls
                    (id, region_id, world, state, owner_type, owner_id, owner_since,
-                    winning_bid, rent_mode, rent_pct, rent_flat, members, max_members, next_rent_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                    winning_bid, rent_mode, rent_pct, rent_flat, members, max_members, next_rent_at,
+                    extra_entities, extra_total)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
             ).use { ps ->
                 bind(ps, stall)
                 ps.executeUpdate()
@@ -45,7 +46,8 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
                 """UPDATE stalls SET
                      region_id = ?, world = ?, state = ?, owner_type = ?, owner_id = ?,
                      owner_since = ?, winning_bid = ?, rent_mode = ?, rent_pct = ?, rent_flat = ?,
-                     members = ?, max_members = ?, next_rent_at = ?
+                     members = ?, max_members = ?, next_rent_at = ?,
+                     extra_entities = ?, extra_total = ?
                    WHERE id = ?"""
             ).use { ps ->
                 ps.setString(1, stall.regionId)
@@ -63,7 +65,9 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
                 ps.setInt(12, stall.maxMembers)
                 if (stall.nextRentAt != null) ps.setLong(13, stall.nextRentAt.toEpochMilli())
                 else ps.setNull(13, java.sql.Types.INTEGER)
-                ps.setString(14, stall.id.value)
+                ps.setString(14, encodeIntMap(stall.extraEntities))
+                ps.setInt(15, stall.extraTotal)
+                ps.setString(16, stall.id.value)
                 ps.executeUpdate()
             }
         }
@@ -86,6 +90,8 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
         ps.setInt(13, stall.maxMembers)
         if (stall.nextRentAt != null) ps.setLong(14, stall.nextRentAt.toEpochMilli())
         else ps.setNull(14, java.sql.Types.INTEGER)
+        ps.setString(15, encodeIntMap(stall.extraEntities))
+        ps.setInt(16, stall.extraTotal)
     }
 
     private fun encodeMembers(members: Set<UUID>): String =
@@ -98,6 +104,35 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
             .filter { it.isNotBlank() }
             .map { UUID.fromString(it.trim()) }
             .toSet()
+    }
+
+    /**
+     * Encode a [Map<String, Int>] as a minimal JSON object string, e.g.
+     * `{"VILLAGER":5,"ZOMBIE":2}`. Keys and values are guaranteed to contain
+     * no characters that need escaping (EntityType names are ASCII identifiers;
+     * values are plain integers), so manual encoding is safe here.
+     */
+    private fun encodeIntMap(map: Map<String, Int>): String {
+        if (map.isEmpty()) return "{}"
+        return map.entries.joinToString(",", prefix = "{", postfix = "}") { (k, v) ->
+            "\"$k\":$v"
+        }
+    }
+
+    /**
+     * Decode a JSON object produced by [encodeIntMap] back into a [Map<String, Int>].
+     * Uses a simple regex that matches `"KEY":VALUE` pairs.
+     */
+    private fun decodeIntMap(raw: String?): Map<String, Int> {
+        if (raw.isNullOrBlank() || raw.trim() == "{}") return emptyMap()
+        val result = mutableMapOf<String, Int>()
+        val entryPattern = Regex(""""([^"]+)"\s*:\s*(-?\d+)""")
+        for (match in entryPattern.findAll(raw)) {
+            val key = match.groupValues[1]
+            val value = match.groupValues[2].toIntOrNull() ?: continue
+            result[key] = value
+        }
+        return result
     }
 
     private fun queryOne(sql: String, prep: PreparedStatement.() -> Unit): Stall? {
@@ -143,6 +178,8 @@ class StallRepositorySql(private val ds: DataSource) : StallRepository {
             members = decodeMembers(rs.getString("members")),
             maxMembers = rs.getInt("max_members"),
             nextRentAt = rs.getLong("next_rent_at").takeIf { !rs.wasNull() }?.let { Instant.ofEpochMilli(it) },
+            extraEntities = decodeIntMap(rs.getString("extra_entities")),
+            extraTotal = rs.getInt("extra_total"),
         )
     }
 }

@@ -1,8 +1,10 @@
 package net.badgersmc.em.application
 
 import net.badgersmc.em.config.EnthusiaMarketConfig
+import net.badgersmc.em.domain.entitylimit.EntityLimitGroup
 import net.badgersmc.em.domain.ports.PermissionChecker
 import net.badgersmc.nexus.annotations.Service
+import org.bukkit.entity.EntityType
 import java.util.UUID
 
 /**
@@ -102,6 +104,32 @@ class LimitResolutionService(
     private fun mergeBest(a: Int, b: Int): Int = when {
         a == UNLIMITED || b == UNLIMITED -> UNLIMITED
         else -> maxOf(a, b)
+    }
+
+    /**
+     * Resolves the [EntityLimitGroup] for the given [regionKind] by looking
+     * it up in [EnthusiaMarketConfig.entitylimits]. Falls back to
+     * [EntityLimitGroup.UNLIMITED] when no entry is present.
+     *
+     * Config keys use raw [EntityType] names (e.g. `"VILLAGER"`); unrecognised
+     * names are silently ignored so that config typos never crash the server.
+     */
+    fun entityLimitFor(regionKind: String): EntityLimitGroup {
+        val cfg = config.entitylimits[regionKind] ?: return EntityLimitGroup.UNLIMITED
+
+        val perType = cfg.perType
+            .entries
+            .mapNotNull { (name, cap) ->
+                val et = runCatching { EntityType.valueOf(name) }.getOrNull() ?: return@mapNotNull null
+                et to cap
+            }
+            .toMap()
+
+        return EntityLimitGroup(
+            perType = perType,
+            total = cfg.total,
+            extras = emptyMap(),
+        )
     }
 
     companion object {

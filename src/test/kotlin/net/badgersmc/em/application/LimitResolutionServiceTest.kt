@@ -3,10 +3,13 @@ package net.badgersmc.em.application
 import io.mockk.every
 import io.mockk.mockk
 import net.badgersmc.em.config.EnthusiaMarketConfig
+import net.badgersmc.em.domain.entitylimit.EntityLimitGroup
 import net.badgersmc.em.domain.ports.PermissionChecker
+import org.bukkit.entity.EntityType
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 
 /**
  * Red tests for TDD-210 — LimitResolutionService merges the limit
@@ -148,5 +151,83 @@ class LimitResolutionServiceTest {
             LimitResolutionService.ClaimDecision.Allowed,
             service.canClaim(player, kind = "shop", currentTotal = 999, currentForKind = 999),
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // TDD-220 — entityLimitFor
+    // -----------------------------------------------------------------------
+
+    private fun noopPerms() = mockk<PermissionChecker>().also {
+        every { it.has(any(), any()) } returns false
+    }
+
+    @Test fun `entityLimitFor returns UNLIMITED when region kind is not configured`() {
+        val config = EnthusiaMarketConfig() // empty entitylimits
+        val service = LimitResolutionService(config, noopPerms())
+
+        assertSame(EntityLimitGroup.UNLIMITED, service.entityLimitFor("shop"))
+    }
+
+    @Test fun `entityLimitFor returns UNLIMITED when entitylimits map is empty`() {
+        val config = EnthusiaMarketConfig()
+        val service = LimitResolutionService(config, noopPerms())
+
+        assertSame(EntityLimitGroup.UNLIMITED, service.entityLimitFor(""))
+    }
+
+    @Test fun `entityLimitFor returns group with correct total when kind is present`() {
+        val config = EnthusiaMarketConfig().apply {
+            entitylimits["shop"] = EnthusiaMarketConfig.EntityLimitGroupConfig().apply {
+                total = 20
+            }
+        }
+        val service = LimitResolutionService(config, noopPerms())
+
+        val group = service.entityLimitFor("shop")
+        assertEquals(20, group.total)
+        assertEquals(emptyMap(), group.perType)
+    }
+
+    @Test fun `entityLimitFor maps perType entries by EntityType name`() {
+        val config = EnthusiaMarketConfig().apply {
+            entitylimits["market"] = EnthusiaMarketConfig.EntityLimitGroupConfig().apply {
+                total = -1
+                perType["VILLAGER"] = 5
+                perType["ZOMBIE"] = 2
+            }
+        }
+        val service = LimitResolutionService(config, noopPerms())
+
+        val group = service.entityLimitFor("market")
+        assertEquals(-1, group.total)
+        assertEquals(5, group.perType[EntityType.VILLAGER])
+        assertEquals(2, group.perType[EntityType.ZOMBIE])
+    }
+
+    @Test fun `entityLimitFor silently ignores unknown EntityType names`() {
+        val config = EnthusiaMarketConfig().apply {
+            entitylimits["test"] = EnthusiaMarketConfig.EntityLimitGroupConfig().apply {
+                total = 10
+                perType["VILLAGER"] = 3
+                perType["NOT_A_REAL_ENTITY_TYPE_XYZ"] = 99  // invalid — should be ignored
+            }
+        }
+        val service = LimitResolutionService(config, noopPerms())
+
+        val group = service.entityLimitFor("test")
+        assertEquals(1, group.perType.size)
+        assertEquals(3, group.perType[EntityType.VILLAGER])
+    }
+
+    @Test fun `entityLimitFor extras field is always empty (extras come from stall, not config)`() {
+        val config = EnthusiaMarketConfig().apply {
+            entitylimits["farm"] = EnthusiaMarketConfig.EntityLimitGroupConfig().apply {
+                total = 50
+            }
+        }
+        val service = LimitResolutionService(config, noopPerms())
+
+        val group = service.entityLimitFor("farm")
+        assertEquals(emptyMap(), group.extras)
     }
 }

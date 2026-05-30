@@ -33,6 +33,19 @@ data class Stall(
      * the time remaining (REQ-250 extension).
      */
     val nextRentAt: Instant? = null,
+    /**
+     * Per-entity-type additive allowance granted to this stall on top of
+     * the region-kind cap defined in
+     * [net.badgersmc.em.config.EnthusiaMarketConfig.entitylimits]. Key is
+     * the [org.bukkit.entity.EntityType] name string (e.g. `"VILLAGER"`).
+     * Persisted as JSON in the `extra_entities` column (V013).
+     */
+    val extraEntities: Map<String, Int> = emptyMap(),
+    /**
+     * Additive allowance for the *total* entity count granted to this stall
+     * on top of the region-kind total cap. Persisted in `extra_total` (V013).
+     */
+    val extraTotal: Int = 0,
 ) {
     /**
      * Add [playerUuid] to the member roster. Idempotent — re-adding an

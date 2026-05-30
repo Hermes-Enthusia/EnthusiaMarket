@@ -5,10 +5,12 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.confirmVerified
 import net.badgersmc.em.application.AuctionLifecycleService
 import net.badgersmc.em.application.ImportStallsService
 import net.badgersmc.em.application.StallMemberService
 import net.badgersmc.em.config.EnthusiaMarketConfig
+import net.badgersmc.em.domain.ports.RegionMemberSync
 import net.badgersmc.em.domain.stall.OwnerRef
 import net.badgersmc.em.domain.stall.RentTerms
 import net.badgersmc.em.domain.stall.Stall
@@ -157,5 +159,199 @@ class AdminCommandsTest {
         cmd.membersList(player, "s1")
 
         verify { members.listMembers(StallId("s1"), actorUuid) }
+    }
+
+    // =========================================================================
+    // rg resync — REQ: rebuild WG ACL for every stall
+    // =========================================================================
+
+    /**
+     * Helper: build an AdminCommands with explicit [repo] and [regionMembers],
+     * relaxing every other dependency.
+     */
+    private fun buildResyncCmd(
+        repo: StallRepository,
+        regionMembers: RegionMemberSync,
+    ) = AdminCommands(
+        mockk(relaxed = true), // ImportStallsService
+        repo,
+        config,
+        mockk(relaxed = true), // AuctionLifecycleService
+        mockk(relaxed = true), // ConfigManager
+        mockk(relaxed = true), // AuctionRepository
+        mockk(relaxed = true), // JavaPlugin
+        mockk(relaxed = true), // LangService
+        mockk(relaxed = true), // NexusScheduler
+        mockk(relaxed = true), // StallMemberService
+        mockk(relaxed = true), // SellOfferService
+        mockk(relaxed = true), // StallSellbackService
+        regionMembers,
+    )
+
+    @Test fun `rg resync SOLO-owned stall calls clearOwnersAndMembers then setOwner then addMember for each member`() {
+        val ownerUuid = UUID.randomUUID()
+        val memberUuid = UUID.randomUUID()
+        val stall = Stall(
+            id = StallId("s1"), regionId = "s1", world = "world",
+            state = StallState.OWNED,
+            owner = OwnerRef.solo(ownerUuid),
+            ownerSince = null, winningBid = 100L,
+            rentTerms = RentTerms.flat(10L),
+            members = setOf(memberUuid),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(stall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        verify(exactly = 1) { regionMembers.clearOwnersAndMembers("world", "s1") }
+        verify(exactly = 1) { regionMembers.setOwner("world", "s1", ownerUuid) }
+        verify(exactly = 1) { regionMembers.addMember("world", "s1", memberUuid) }
+        confirmVerified(regionMembers)
+    }
+
+    @Test fun `rg resync SOLO-owned stall with no members does not call addMember`() {
+        val ownerUuid = UUID.randomUUID()
+        val stall = Stall(
+            id = StallId("s2"), regionId = "s2", world = "world",
+            state = StallState.OWNED,
+            owner = OwnerRef.solo(ownerUuid),
+            ownerSince = null, winningBid = 200L,
+            rentTerms = RentTerms.flat(20L),
+            members = emptySet(),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(stall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        verify(exactly = 1) { regionMembers.clearOwnersAndMembers("world", "s2") }
+        verify(exactly = 1) { regionMembers.setOwner("world", "s2", ownerUuid) }
+        verify(exactly = 0) { regionMembers.addMember(any(), any(), any()) }
+    }
+
+    @Test fun `rg resync GUILD-owned stall is skipped — no regionMembers calls`() {
+        val stall = Stall(
+            id = StallId("s3"), regionId = "s3", world = "world",
+            state = StallState.OWNED,
+            owner = OwnerRef.guild("guild-123"),
+            ownerSince = null, winningBid = 300L,
+            rentTerms = RentTerms.flat(30L),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(stall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        verify(exactly = 0) { regionMembers.clearOwnersAndMembers(any(), any()) }
+        verify(exactly = 0) { regionMembers.setOwner(any(), any(), any()) }
+        verify(exactly = 0) { regionMembers.addMember(any(), any(), any()) }
+        confirmVerified(regionMembers)
+    }
+
+    @Test fun `rg resync UNOWNED stall calls clearOwnersAndMembers only`() {
+        val stall = Stall(
+            id = StallId("s4"), regionId = "s4", world = "world",
+            state = StallState.UNOWNED,
+            owner = OwnerRef.unowned(),
+            ownerSince = null, winningBid = 0L,
+            rentTerms = RentTerms.flat(0L),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(stall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        verify(exactly = 1) { regionMembers.clearOwnersAndMembers("world", "s4") }
+        verify(exactly = 0) { regionMembers.setOwner(any(), any(), any()) }
+        verify(exactly = 0) { regionMembers.addMember(any(), any(), any()) }
+        confirmVerified(regionMembers)
+    }
+
+    @Test fun `rg resync AUCTIONING stall is skipped — no regionMembers calls`() {
+        val ownerUuid = UUID.randomUUID()
+        val stall = Stall(
+            id = StallId("s5"), regionId = "s5", world = "world",
+            state = StallState.AUCTIONING,
+            owner = OwnerRef.solo(ownerUuid),
+            ownerSince = null, winningBid = 0L,
+            rentTerms = RentTerms.flat(0L),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(stall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        verify(exactly = 0) { regionMembers.clearOwnersAndMembers(any(), any()) }
+        verify(exactly = 0) { regionMembers.setOwner(any(), any(), any()) }
+        verify(exactly = 0) { regionMembers.addMember(any(), any(), any()) }
+        confirmVerified(regionMembers)
+    }
+
+    @Test fun `rg resync mixed stall list processes each stall correctly`() {
+        val soloOwner = UUID.randomUUID()
+        val soloMember = UUID.randomUUID()
+        val soloStall = Stall(
+            id = StallId("solo"), regionId = "solo", world = "world",
+            state = StallState.OWNED,
+            owner = OwnerRef.solo(soloOwner),
+            ownerSince = null, winningBid = 100L,
+            rentTerms = RentTerms.flat(10L),
+            members = setOf(soloMember),
+        )
+        val guildStall = Stall(
+            id = StallId("guild"), regionId = "guild", world = "world",
+            state = StallState.OWNED,
+            owner = OwnerRef.guild("g1"),
+            ownerSince = null, winningBid = 200L,
+            rentTerms = RentTerms.flat(20L),
+        )
+        val unownedStall = Stall(
+            id = StallId("unowned"), regionId = "unowned", world = "world",
+            state = StallState.UNOWNED,
+            owner = OwnerRef.unowned(),
+            ownerSince = null, winningBid = 0L,
+            rentTerms = RentTerms.flat(0L),
+        )
+
+        val repo = mockk<StallRepository>()
+        every { repo.all() } returns listOf(soloStall, guildStall, unownedStall)
+
+        val regionMembers = mockk<RegionMemberSync>(relaxUnitFun = true)
+
+        val cmd = buildResyncCmd(repo, regionMembers)
+        cmd.rgResync(sender)
+
+        // SOLO stall: full rebuild
+        verify(exactly = 1) { regionMembers.clearOwnersAndMembers("world", "solo") }
+        verify(exactly = 1) { regionMembers.setOwner("world", "solo", soloOwner) }
+        verify(exactly = 1) { regionMembers.addMember("world", "solo", soloMember) }
+
+        // GUILD stall: nothing
+        verify(exactly = 0) { regionMembers.clearOwnersAndMembers("world", "guild") }
+        verify(exactly = 0) { regionMembers.setOwner("world", "guild", any()) }
+
+        // UNOWNED stall: clear only
+        verify(exactly = 1) { regionMembers.clearOwnersAndMembers("world", "unowned") }
     }
 }
