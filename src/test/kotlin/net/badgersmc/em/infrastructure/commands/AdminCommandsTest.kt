@@ -40,7 +40,7 @@ class AdminCommandsTest {
         val repo = mockk<StallRepository>()
         every { service.import("world", "stall_") } returns ImportStallsService.Result(3, 1)
 
-        val cmd = AdminCommands(service, repo, config, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+        val cmd = AdminManagementCommands(service, repo, mockk(relaxed = true), config, mockk(relaxed = true), mockk(relaxed = true))
         cmd.import(sender)
 
         verify { service.import("world", "stall_") }
@@ -55,7 +55,7 @@ class AdminCommandsTest {
                   null, 0L, RentTerms.formula(1.0))
         )
 
-        val cmd = AdminCommands(service, repo, config, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+        val cmd = AdminManagementCommands(service, repo, mockk(relaxed = true), config, mockk(relaxed = true), mockk(relaxed = true))
         cmd.list(sender)
 
         verify { sender.sendMessage(any<Component>()) }
@@ -95,12 +95,8 @@ class AdminCommandsTest {
                       null, 0L, RentTerms.formula(1.0))
             )
 
-        val cmd = AdminCommands(
-            mockk(relaxed = true), mockk(relaxed = true), config,
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        val cmd = StallMemberCommands(
             members,
-            mockk(relaxed = true),
             mockk(relaxed = true),
             mockk(relaxed = true),
         )
@@ -117,12 +113,8 @@ class AdminCommandsTest {
         every { members.addMember(any(), any(), any()) } returns
             StallMemberService.Result.NotAuthorised
 
-        val cmd = AdminCommands(
-            mockk(relaxed = true), mockk(relaxed = true), config,
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        val cmd = StallMemberCommands(
             members,
-            mockk(relaxed = true),
             mockk(relaxed = true),
             mockk(relaxed = true),
         )
@@ -147,12 +139,8 @@ class AdminCommandsTest {
                       null, 0L, RentTerms.formula(1.0))
             )
 
-        val cmd = AdminCommands(
-            mockk(relaxed = true), mockk(relaxed = true), config,
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
-            mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true),
+        val cmd = StallMemberCommands(
             members,
-            mockk(relaxed = true),
             mockk(relaxed = true),
             mockk(relaxed = true),
         )
@@ -166,26 +154,19 @@ class AdminCommandsTest {
     // =========================================================================
 
     /**
-     * Helper: build an AdminCommands with explicit [repo] and [regionMembers],
+     * Helper: build an AdminManagementCommands with explicit [repo] and [regionMembers],
      * relaxing every other dependency.
      */
     private fun buildResyncCmd(
         repo: StallRepository,
         regionMembers: RegionMemberSync,
-    ) = AdminCommands(
+    ) = AdminManagementCommands(
         mockk(relaxed = true), // ImportStallsService
         repo,
-        config,
-        mockk(relaxed = true), // AuctionLifecycleService
-        mockk(relaxed = true), // ConfigManager
-        mockk(relaxed = true), // AuctionRepository
-        mockk(relaxed = true), // JavaPlugin
-        mockk(relaxed = true), // LangService
-        mockk(relaxed = true), // NexusScheduler
-        mockk(relaxed = true), // StallMemberService
-        mockk(relaxed = true), // SellOfferService
-        mockk(relaxed = true), // StallSellbackService
         regionMembers,
+        config,
+        mockk(relaxed = true), // ConfigManager
+        mockk(relaxed = true), // LangService
     )
 
     @Test fun `rg resync SOLO-owned stall calls clearOwnersAndMembers then setOwner then addMember for each member`() {

@@ -1,0 +1,123 @@
+package net.badgersmc.em.infrastructure.commands
+
+import net.badgersmc.em.application.AuctionLifecycleService
+import net.badgersmc.em.application.AuctionResult
+import net.badgersmc.em.application.MassAuctionResult
+import net.badgersmc.em.domain.auction.AuctionId
+import net.badgersmc.em.domain.auction.AuctionRepository
+import net.badgersmc.em.domain.stall.StallId
+import net.badgersmc.em.domain.stall.StallRepository
+import net.badgersmc.em.interaction.gui.AuctionBrowserMenu
+import net.badgersmc.nexus.annotations.Component
+import net.badgersmc.nexus.commands.annotations.Arg
+import net.badgersmc.nexus.commands.annotations.Command
+import net.badgersmc.nexus.commands.annotations.Context
+import net.badgersmc.nexus.i18n.LangService
+import net.badgersmc.nexus.paper.commands.annotations.Permission
+import net.badgersmc.nexus.paper.commands.annotations.Subcommand
+import net.badgersmc.nexus.scheduler.NexusScheduler
+import org.bukkit.command.CommandSender
+import org.bukkit.entity.Player
+import org.bukkit.plugin.java.JavaPlugin
+import java.util.UUID
+
+@Command(name = "em", description = "EnthusiaMarket auction commands", aliases = ["enthusiamarket"])
+@Component
+class AuctionCommands(
+    private val auctionService: AuctionLifecycleService,
+    private val auctions: AuctionRepository,
+    private val lang: LangService,
+    private val nexusScheduler: NexusScheduler,
+    @Suppress("UnusedPrivateMember") private val plugin: JavaPlugin,
+    private val stalls: StallRepository,
+) {
+    @Subcommand("auction start")
+    @Permission("enthusiamarket.admin")
+    fun auctionStart(
+        @Context sender: CommandSender,
+        @Arg("stall") stall: String,
+        @Arg("price") price: Long,
+        @Arg("duration") duration: String? = null
+    ) {
+        val component = when (val result = auctionService.createAuction(
+            StallId(stall), extractSenderUuid(sender), price, duration
+        )) {
+            is AuctionResult.Success -> lang.msg(
+                "admin.auction.start.success",
+                "id" to result.auction.id,
+                "stall" to result.auction.stallId,
+                "starting_bid" to result.auction.startingBid
+            )
+            is AuctionResult.Failure -> lang.msg("admin.auction.start.failure", "reason" to result.reason)
+            is AuctionResult.NotFound -> lang.msg("admin.auction.start.not_found")
+        }
+        sender.sendMessage(component)
+    }
+
+    @Subcommand("bid")
+    @Permission("enthusiamarket.admin")
+    fun bid(
+        @Context sender: CommandSender,
+        @Arg("auction") auction: String,
+        @Arg("amount") amount: Long
+    ) {
+        val component = when (val result = auctionService.placeBid(AuctionId(auction), extractSenderUuid(sender), amount)) {
+            is AuctionResult.Success -> lang.msg(
+                "admin.bid.success",
+                "amount" to (result.auction.highBid?.amount ?: amount),
+                "id" to result.auction.id
+            )
+            is AuctionResult.Failure -> lang.msg("admin.bid.failure", "reason" to result.reason)
+            is AuctionResult.NotFound -> lang.msg("admin.bid.not_found")
+        }
+        sender.sendMessage(component)
+    }
+
+    @Subcommand("auction startall")
+    @Permission("enthusiamarket.admin")
+    fun auctionStartAll(
+        @Context sender: CommandSender,
+        @Arg("price") price: Long,
+        @Arg("duration") duration: String? = null
+    ) {
+        val component = when (val result = auctionService.startMassAuction(price, duration)) {
+            is MassAuctionResult.Report -> lang.msg(
+                "admin.auction.startall.result",
+                "created" to result.created,
+                "skipped" to result.skipped,
+                "errors" to result.errors
+            )
+            is MassAuctionResult.Invalid -> lang.msg("admin.auction.startall.failure", "reason" to result.reason)
+        }
+        sender.sendMessage(component)
+    }
+
+    @Subcommand("auctions")
+    @Permission("enthusiamarket.auction.list")
+    fun auctionsBrowse(@Context sender: CommandSender) {
+        if (sender !is Player) {
+            sender.sendMessage(lang.msg("command.players_only"))
+            return
+        }
+        AuctionBrowserMenu(auctions, stalls, nexusScheduler, lang).open(sender)
+    }
+
+    @Subcommand("auction cancel")
+    @Permission("enthusiamarket.admin")
+    fun auctionCancel(
+        @Context sender: CommandSender,
+        @Arg("auction") auction: String
+    ) {
+        val component = when (val result = auctionService.cancelAuction(AuctionId(auction), extractSenderUuid(sender))) {
+            is AuctionResult.Success -> lang.msg("admin.auction.cancel.success", "id" to result.auction.id)
+            is AuctionResult.Failure -> lang.msg("admin.auction.cancel.failure", "reason" to result.reason)
+            is AuctionResult.NotFound -> lang.msg("admin.auction.cancel.not_found")
+        }
+        sender.sendMessage(component)
+    }
+
+    /** Extract sender UUID, preferring Player sender. */
+    private fun extractSenderUuid(sender: CommandSender): UUID {
+        return if (sender is Player) sender.uniqueId else UUID.randomUUID()
+    }
+}
