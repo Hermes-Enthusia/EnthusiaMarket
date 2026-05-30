@@ -1,6 +1,6 @@
 # Database Schema — EnthusiaMarket
 
-**Date:** 2026-05-24
+**Date:** 2026-05-29
 **Status:** Living reference; mirrors `src/main/resources/migrations/`
 **Owner:** BadgersMC
 
@@ -11,24 +11,33 @@ Authoritative schema definitions live in versioned migration files. This doc sum
 | Version | File | Adds |
 |---|---|---|
 | V001 | `V001__init.sql` | All tables below (initial schema) |
-| V002 | (planned, TDD-11) | (no new tables — formalises shop sign columns + extra indexes) |
-| V003 | (planned, TDD-31) | Indexes for active-auction lookups |
+| V002 | `V002__shop_signs.sql` | Index on `signs.stall_id` |
+| V003 | `V003__auctions.sql` | `auctions` + `bids` tables |
+| V004 | `V004__shops.sql` | `shop_items` table |
+| V005 | `V005__shop_guild.sql` | `guild_id`, `creator_id` columns on `shop_items` |
+| V006 | `V006__auctions_bigint.sql` | Rebuild `auctions` with BIGINT timestamps |
+| V007 | `V007__shop_constraints.sql` | Unique index on sign coordinates |
+| V008 | `V008__stall_members.sql` | `members`, `max_members` columns on `stalls` (REQ-200/201) |
+| V009 | `V009__sell_offers.sql` | `sell_offers` table (REQ-260) |
+| V010 | `V010__purchase_signs.sql` | `purchase_signs` table (REQ-250..253) |
+| V011 | `V011__stall_next_rent.sql` | `next_rent_at` column on `stalls` (REQ-250 extension) |
+| V012 | `V012__shop_direction.sql` | `direction` column on `shop_items` with CHECK constraint |
 
-`Migrations.runAll(ds)` applies in numeric order and records `schema_version`; existing versions are skipped (REQ-042).
+`MigrationRunner.runAll(ds)` applies in numeric order and records `schema_version`; existing versions are skipped (REQ-042).
 
 ## Tables
 
 ### `stalls` — root aggregate
 
-Owner per stall: either NONE (vacant), PLAYER (uuid), or GUILD (guild id). `region_id` + `world` is the natural key bound to a WorldGuard region.
+Owner per stall: either NONE (unowned), SOLO (player uuid), or GUILD (guild id). `region_id` + `world` is the natural key bound to a WorldGuard region.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | `StallId` (UUID string) |
 | `region_id` | TEXT | WG region name |
 | `world` | TEXT | Bukkit world name |
-| `state` | TEXT | `VACANT`, `RENTED`, `OWNED`, `DEFAULTED` |
-| `owner_type` | TEXT | `NONE`, `PLAYER`, `GUILD` |
+| `state` | TEXT | `UNOWNED`, `OWNED`, `GRACE`, `AUCTIONING`, `RE_AUCTIONING`, `EMERGENCY_AUCTIONING` |
+| `owner_type` | TEXT | `NONE`, `SOLO`, `GUILD` |
 | `owner_id` | TEXT | UUID or guild id; empty for NONE |
 | `owner_since` | INTEGER | epoch millis; null when vacant |
 | `winning_bid` | INTEGER | last awarded bid; basis for `formula` rent |

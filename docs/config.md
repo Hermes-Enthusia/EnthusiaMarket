@@ -27,7 +27,9 @@ Defines every config key the plugin reads, its type, default, source REQ, and wh
 | Key | Type | Default | REQ | Used by |
 |---|---|---|---|---|
 | `rent.mode` | enum `formula\|flat` | `formula` | REQ-003 | `RentTerms` factory |
-| `rent.formula-pct` | decimal | `0.01` (1% of winning-bid per period) | REQ-003 | `RentTerms.formula(pct)` |
+| `rent.formula-pct` | decimal | `1.0` (1% of winning-bid per period) | REQ-003 | `RentTerms.formula(pct)` |
+
+> **Note:** `formula-pct` uses a "human percent" scale — `1.0` = 1%, `5.0` = 5%. Internally `RentTerms.dailyRent` computes `winningBid * pct / 100.0`. The old default of `0.01` produced ~0 rent on small bids and was changed to `1.0`.
 | `rent.flat-amount` | integer | `0` | REQ-003 | `RentTerms.flat(amount)` |
 | `rent.collection-interval` | duration | `P1D` | REQ-003 | `RentCollectionService` scheduler |
 | `rent.grace-period` | duration | `P3D` | REQ-004 | default/eviction in `RentCollectionService` |
