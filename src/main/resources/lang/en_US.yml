@@ -236,3 +236,6 @@ bedrock:
 
 container_sign:
   stock_line: "<gray>Stock: <trades>"
+
+entity_limit:
+  spawn_blocked: "<prefix><red>Entity limit reached for this stall."
