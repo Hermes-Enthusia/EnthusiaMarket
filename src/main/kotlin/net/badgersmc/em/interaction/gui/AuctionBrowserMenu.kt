@@ -1,21 +1,29 @@
 package net.badgersmc.em.interaction.gui
 
+import com.github.stefvanschie.inventoryframework.adventuresupport.ComponentHolder
 import com.github.stefvanschie.inventoryframework.gui.GuiItem
 import com.github.stefvanschie.inventoryframework.gui.type.ChestGui
 import com.github.stefvanschie.inventoryframework.pane.OutlinePane
 import com.github.stefvanschie.inventoryframework.pane.PaginatedPane
 import com.github.stefvanschie.inventoryframework.pane.Pane
 import com.github.stefvanschie.inventoryframework.pane.StaticPane
+import net.badgersmc.em.application.AuctionLifecycleService
+import net.badgersmc.em.application.AuctionResult
 import net.badgersmc.em.domain.auction.Auction
+import net.badgersmc.em.domain.auction.AuctionId
 import net.badgersmc.em.domain.auction.AuctionRepository
 import net.badgersmc.em.domain.stall.Stall
 import net.badgersmc.em.domain.stall.StallRepository
 import net.badgersmc.nexus.i18n.LangService
+import net.badgersmc.em.interaction.Menu
 import net.badgersmc.em.interaction.blockItemTheft
 import net.badgersmc.nexus.paper.gui.LivePollingMenu
 import net.badgersmc.nexus.paper.gui.itemStack
 import net.badgersmc.nexus.scheduler.NexusScheduler
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
+import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.Component as AdventureComponent
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
@@ -44,6 +52,7 @@ class AuctionBrowserMenu(
     private val stalls: StallRepository,
     scheduler: NexusScheduler,
     private val lang: LangService,
+    private val auctionService: AuctionLifecycleService,
     private val nameCache: OfflinePlayerNameCache = OfflinePlayerNameCache()
 ) : LivePollingMenu(scheduler, rows = ROWS, refreshTicks = REFRESH_TICKS) {
 
@@ -61,7 +70,7 @@ class AuctionBrowserMenu(
      * the main-thread repaint doesn't touch JDBC, WorldGuard, or
      * `OfflinePlayer.name` calls.
      */
-    private data class EntryView(
+    internal data class EntryView(
         val auction: Auction,
         val stallWorld: String?,
         val stallRegion: String?,
@@ -136,7 +145,18 @@ class AuctionBrowserMenu(
             val pagePane = OutlinePane(0, 0, 9, 5, Pane.Priority.LOWEST)
             val slice = sorted.drop(pageIdx * ITEMS_PER_PAGE).take(ITEMS_PER_PAGE)
             for (entry in slice) {
-                pagePane.addItem(GuiItem(entryIcon(entry, now)) { it.isCancelled = true })
+                val browser = this@AuctionBrowserMenu
+                pagePane.addItem(GuiItem(entryIcon(entry, now)) { event ->
+                    val player = event.whoClicked as? Player ?: return@GuiItem
+                    event.isCancelled = true
+
+                    if (!player.hasPermission("enthusiamarket.auction.bid")) {
+                        player.sendMessage(lang.msg("gui.auctions.bid_no_permission"))
+                        return@GuiItem
+                    }
+
+                    AuctionBidMenu(entry, auctionService, lang) { browser.open(player) }.open(player)
+                })
             }
             itemsPane.addPane(pageIdx, pagePane)
         }
@@ -236,6 +256,7 @@ class AuctionBrowserMenu(
                 bidLine,
                 lang.msg("gui.auctions.entry_lore_starting", KEY_AMOUNT to auction.startingBid),
                 lang.msg("gui.auctions.entry_lore_time_left", "time" to formatRemaining(remaining)),
+                lang.msg("gui.auctions.entry_lore_click_to_bid"),
                 lang.msg("gui.auctions.entry_lore_id", KEY_ID to auction.id.value)
             )
         }
@@ -253,5 +274,134 @@ class AuctionBrowserMenu(
         if (minutes > 0) parts.add("${minutes}m")
         parts.add("${seconds}s")
         return parts.joinToString(" ")
+    }
+}
+
+/**
+ * Secondary menu opened when a player clicks an auction entry in the
+ * [AuctionBrowserMenu]. Shows quick-bid increment buttons (+5, +10, +25)
+ * and a "Custom Amount" button that prompts via chat.
+ *
+ * - "Back" re-opens the browser via [onBack].
+ * - Quick-bid amounts are calculated from the latest known bid so they
+ *   always exceed the current high bid. If another player outbids in the
+ *   meantime, [AuctionLifecycleService.placeBid] rejects with a readable
+ *   message.
+ */
+internal class AuctionBidMenu(
+    private val entry: AuctionBrowserMenu.EntryView,
+    private val auctionService: AuctionLifecycleService,
+    private val lang: LangService,
+    private val onBack: () -> Unit
+) : Menu {
+
+    override fun open(player: Player) {
+        val gui = ChestGui(3, ComponentHolder.of(lang.msg("gui.auctions.bid_menu.title", "stall" to entry.auction.stallId.value)))
+        gui.setOnTopClick { it.isCancelled = true }
+        gui.setOnBottomClick { it.isCancelled = true }
+        gui.blockItemTheft()
+
+        gui.addPane(infoPane())
+        gui.addPane(bidButtons(player))
+        gui.addPane(navBar())
+
+        gui.show(player)
+    }
+
+    private fun infoPane(): StaticPane {
+        val auction = entry.auction
+        val currentBid = auction.highBid?.amount ?: auction.startingBid
+        val remaining = Duration.between(Instant.now(), auction.endAt)
+
+        val pane = StaticPane(0, 0, 9, 1)
+        // Center slot: info item showing stall and current bid
+        pane.addItem(GuiItem(itemStack(Material.EMERALD) {
+            name(lang.msg("gui.auctions.entry_name", "stall" to auction.stallId.value))
+            lore(
+                lang.msg("gui.auctions.bid_menu.info_current", "amount" to currentBid),
+                lang.msg("gui.auctions.bid_menu.info_starting", "amount" to auction.startingBid),
+                lang.msg("gui.auctions.entry_lore_time_left", "time" to formatRemainingStatic(remaining))
+            )
+        }) { it.isCancelled = true }, 4, 0)
+        return pane
+    }
+
+    private fun bidButtons(player: Player): StaticPane {
+        val auction = entry.auction
+        val base = maxOf(auction.startingBid, (auction.highBid?.amount ?: 0L) + 1)
+
+        val pane = StaticPane(0, 1, 9, 1)
+
+        pane.addItem(quickBidButton(base + 5, 5, player), 1, 0)
+        pane.addItem(quickBidButton(base + 10, 10, player), 3, 0)
+        pane.addItem(quickBidButton(base + 25, 25, player), 5, 0)
+
+        // Custom amount → close menu, prompt in chat
+        pane.addItem(GuiItem(itemStack(Material.OAK_SIGN) {
+            name(lang.msg("gui.auctions.bid_menu.custom"))
+        }) { event ->
+            event.isCancelled = true
+            player.closeInventory()
+            player.sendMessage(
+                lang.msg("gui.auctions.bid_prompt", "stall" to auction.stallId.value)
+            )
+            val cmd = "/em bid ${auction.id} "
+            player.sendMessage(
+                AdventureComponent.text("  /em bid ", NamedTextColor.GRAY)
+                    .append(AdventureComponent.text(auction.id.value, NamedTextColor.YELLOW)
+                        .clickEvent(ClickEvent.suggestCommand(cmd)))
+                    .append(AdventureComponent.text(" <amount>", NamedTextColor.GRAY))
+            )
+        }, 7, 0)
+
+        return pane
+    }
+
+    private fun quickBidButton(amount: Long, increment: Int, player: Player): GuiItem {
+        return GuiItem(itemStack(Material.GOLD_NUGGET) {
+            name(lang.msg("gui.auctions.bid_menu.quick_bid", "amount" to amount, "increment" to increment))
+        }) { event ->
+            event.isCancelled = true
+            val result = auctionService.placeBid(entry.auction.id, player.uniqueId, amount)
+            val msg = when (result) {
+                is AuctionResult.Success -> lang.msg(
+                    "gui.auctions.bid_menu.success",
+                    "amount" to (result.auction.highBid?.amount ?: amount),
+                    "id" to result.auction.id.value
+                )
+                is AuctionResult.Failure -> lang.msg("gui.auctions.bid_menu.failure", "reason" to result.reason)
+                is AuctionResult.NotFound -> lang.msg("admin.bid.not_found")
+            }
+            player.sendMessage(msg)
+            player.closeInventory()
+            onBack()
+        }
+    }
+
+    private fun navBar(): StaticPane {
+        val pane = StaticPane(0, 2, 9, 1)
+        pane.addItem(GuiItem(itemStack(Material.BARRIER) {
+            name(lang.msg("gui.common.back"))
+        }) {
+            it.isCancelled = true
+            onBack()
+        }, 4, 0)
+        return pane
+    }
+
+    companion object {
+        private fun formatRemainingStatic(d: Duration): String {
+            if (d.isNegative || d.isZero) return "ended" // lang key would need LangService; keep it simple
+            val days = d.toDays()
+            val hours = d.toHours() % 24
+            val minutes = d.toMinutes() % 60
+            val seconds = d.seconds % 60
+            val parts = mutableListOf<String>()
+            if (days > 0) parts.add("${days}d")
+            if (hours > 0) parts.add("${hours}h")
+            if (minutes > 0) parts.add("${minutes}m")
+            parts.add("${seconds}s")
+            return parts.joinToString(" ")
+        }
     }
 }

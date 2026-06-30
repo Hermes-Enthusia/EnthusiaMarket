@@ -435,6 +435,17 @@ gui:
     sort_ending_soon: "Ending Soon"
     sort_ending_latest: "Ending Latest"
     time_ended: "ended"
+    entry_lore_click_to_bid: "<yellow>Click to bid!"
+    bid_prompt: "<green>Bidding on stall <aqua><stall></aqua> — click below and type your amount:"
+    bid_no_permission: "<red>You don't have permission to bid on auctions"
+    bid_menu:
+      title: "<dark_gray>Bid — <green><stall>"
+      info_current: "<gray>Current bid: <gold><amount>"
+      info_starting: "<gray>Starting bid: <white><amount>"
+      quick_bid: "<gold>+<increment> → <white><amount>"
+      custom: "<aqua>Custom Amount..."
+      success: "<green>Bid placed! <gold><amount></gold> on auction <dark_gray><id>"
+      failure: "<red>Bid rejected: <reason>"
 
 bedrock:
   unavailable: "<red>Bedrock forms are not available on this server"
