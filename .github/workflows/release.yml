@@ -78,3 +78,9 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           make_latest: true
+          body: |
+            **EnthusiaMarket v${{ steps.version.outputs.version }}** — *stall-based economy plugin for EnthusiaSMP*
+
+            Run with: drop `EnthusiaMarket-${{ steps.version.outputs.version }}.jar` into `plugins/` and restart.
+
+            ---
