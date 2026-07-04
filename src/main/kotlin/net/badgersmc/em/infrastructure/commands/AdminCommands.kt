@@ -154,9 +154,10 @@ class AdminCommands(
         @Arg("price") price: Long,
         @Arg("duration") duration: String? = null
     ) {
-        val player = sender as? Player ?: run { sender.sendMessage(lang.msg("command.players_only")); return }
-        val component = when (val result = auctionService.createAuction(
-            StallId(stall), player.uniqueId, price, duration
+        // Admin command — skips ownership check so admins can auction
+        // unowned stalls directly without the buy→auction→evict dance.
+        val component = when (val result = auctionService.createAuctionAdmin(
+            StallId(stall), price, duration
         )) {
             is AuctionResult.Success -> lang.msg(
                 "admin.auction.start.success",

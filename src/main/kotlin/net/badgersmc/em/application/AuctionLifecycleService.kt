@@ -104,6 +104,33 @@ class AuctionLifecycleService(
             return AuctionResult.Failure("You are not the owner of this stall")
         }
 
+        return doCreateAuction(stall, startingBid, durationStr)
+    }
+
+    /**
+     * Create an auction for ANY stall, regardless of ownership.
+     * Admin-only — command layer enforces `enthusiamarket.admin` permission.
+     *
+     * Used to auction individual stalls without the buy→auction→evict dance.
+     */
+    fun createAuctionAdmin(
+        stallId: StallId,
+        startingBid: Long,
+        durationStr: String?
+    ): AuctionResult {
+        val stall = stallRepository.findById(stallId)
+            ?: return AuctionResult.Failure("Stall not found: ${stallId.value}")
+
+        return doCreateAuction(stall, startingBid, durationStr)
+    }
+
+    private fun doCreateAuction(
+        stall: Stall,
+        startingBid: Long,
+        durationStr: String?
+    ): AuctionResult {
+        val stallId = stall.id
+
         val existing = auctionRepository.findOpenByStall(stallId)
         if (existing != null) {
             return AuctionResult.Failure("An open auction already exists for this stall")
