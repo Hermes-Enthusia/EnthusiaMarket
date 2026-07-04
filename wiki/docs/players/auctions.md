@@ -12,6 +12,28 @@ updated: 2026-06-06
 
 Auctions are how you win stall ownership. When a stall becomes available (new, re-auctioned, or emergency-auctioned), an auction starts.
 
+## Starting an Auction
+
+If you own a stall, you can start an auction to sell it:
+
+```text
+/em auction start <stall> <price> [duration]
+```
+
+Examples:
+- `/em auction start stall5 1000` — 24h auction starting at $1,000
+- `/em auction start stall5 500 PT1H` — 1-hour auction
+- `/em auction start stall5 2000 PT15M` — 15-minute auction
+- `/em auction start stall5 5000 P7D` — 7-day auction
+
+**Duration format** is ISO-8601 (case-insensitive):
+- `PT15M` = 15 minutes
+- `PT1H` = 1 hour
+- `PT24H` = 24 hours (default if omitted)
+- `P7D` = 7 days
+
+**Admins** can start auctions on any stall (including unowned ones) with the same command. Requires `enthusiamarket.admin` permission.
+
 ## Browsing
 
 Open the auction browser with:
@@ -20,17 +42,21 @@ Open the auction browser with:
 /em auctions
 ```
 
-This shows all active auctions with stall IDs, current high bids, and time remaining. The browser is **view-only** — note the auction ID you want, then bid with the command below.
+This shows all active auctions with stall IDs, current high bids, and time remaining. **Click any auction entry** to close the browser and have the bid command pre-filled in chat — just type your amount and press enter.
 
 ## Bidding
 
 ```text
-/em bid <auction-id> <amount>
+/em bid <auction-id-or-stall> <amount>
 ```
 
-Requires the `enthusiamarket.auction.bid` permission (granted to players by default). Your bid must exceed the current high bid. Bids are **final** — you cannot undo a bid.
+Examples:
+- `/em bid stall5 1500` — bid $1,500 on stall5's auction
+- `/em bid a1b2c3d4-... 2000` — bid $2,000 using the auction UUID
 
-When you bid, the previous high bidder gets their money back automatically.
+You can use either the stall name (e.g. `stall5`) or the auction UUID (shown in `/em auctions` lore). Requires the `enthusiamarket.auction.bid` permission (granted to players by default). Your bid must exceed the current high bid.
+
+**Money is withdrawn immediately when you bid.** If someone outbids you, you get your money back automatically. This means you can't bid more than you have.
 
 ## Winning
 
