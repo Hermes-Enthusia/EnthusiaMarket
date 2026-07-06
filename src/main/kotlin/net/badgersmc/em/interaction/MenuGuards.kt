@@ -40,11 +40,8 @@ fun ChestGui.blockTopInventoryExcept(vararg placementSlots: Int) {
         if (event.slot !in openSlots) event.isCancelled = true
     }
     setOnBottomClick { event ->
-        if (event.click == ClickType.SHIFT_LEFT || event.click == ClickType.SHIFT_RIGHT ||
-            event.click == ClickType.DOUBLE_CLICK
-        ) {
+        if (event.click == ClickType.SHIFT_LEFT || event.click == ClickType.SHIFT_RIGHT) {
             event.isCancelled = true
         }
     }
-    setOnGlobalDrag { it.isCancelled = true }
 }
