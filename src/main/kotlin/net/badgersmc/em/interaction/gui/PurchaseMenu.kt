@@ -70,7 +70,13 @@ class PurchaseMenu(
         val giveLabel = lang.msg("gui.shop.give_label")
         pane.addItem(GuiItem(decorated(Material.GREEN_STAINED_GLASS_PANE, receiveLabel)), 2, 0)
         pane.addItem(GuiItem(decorated(Material.ARROW, Component.text("→"))), 4, 0)
-        pane.addItem(GuiItem(decorated(Material.RED_STAINED_GLASS_PANE, giveLabel)), 6, 0)
+        if (shop.direction == SignDirection.TRADE) {
+            pane.addItem(GuiItem(decorated(Material.RED_STAINED_GLASS_PANE, giveLabel, listOf(
+                lang.msg("gui.shop.trade_drop_hint")
+            ))), 6, 0)
+        } else {
+            pane.addItem(GuiItem(decorated(Material.RED_STAINED_GLASS_PANE, giveLabel)), 6, 0)
+        }
 
         // --- Row 1: the actual items ---
         val row = buildRowItems()
