@@ -79,8 +79,19 @@ class PurchaseMenu(
         pane.addItem(GuiItem(decorated(row.receiveItem, row.receiveName, row.receiveLore)), 2, 1)
         pane.addItem(GuiItem(decorated(Material.ARROW, Component.text("→"))), 4, 1)
         if (shop.direction == SignDirection.TRADE) {
-            // Leave slot 15 empty — GuiItem blocks native item placement.
-            // Visual border indicates the drop zone (LumaGuilds GuildBannerMenu pattern).
+            // Placeholder GuiItem at slot 15 so IFramework's click-dispatcher
+            // finds a match and routes the event without cancelling it.
+            // (GuildBannerMenu pattern — GuiItem at placement slot, no onClick.)
+            val placeItem = ItemStack(Material.LIGHT_GRAY_STAINED_GLASS_PANE).apply {
+                itemMeta = itemMeta?.apply {
+                    displayName(lang.msg("trade_place_item"))
+                    lore(listOf(
+                        lang.msg("trade_place_lore"),
+                        lang.msg("trade_place_lore2")
+                    ))
+                }
+            }
+            pane.addItem(GuiItem(placeItem), 6, 1)
             addPlacementSlotBorder(pane)
         } else {
             pane.addItem(GuiItem(decorated(row.giveItem, row.giveName, row.giveLore)), 6, 1)
@@ -194,7 +205,7 @@ class PurchaseMenu(
 
     private fun readAndValidateSlot15(player: Player): ItemStack? {
         val slotItem = player.openInventory.topInventory.getItem(15)
-        if (slotItem == null || slotItem.type.isAir) {
+        if (slotItem == null || slotItem.type == Material.LIGHT_GRAY_STAINED_GLASS_PANE) {
             player.sendMessage(lang.msg("shop.trade.failure", "reason" to "Place your trade item in the slot"))
             return null
         }

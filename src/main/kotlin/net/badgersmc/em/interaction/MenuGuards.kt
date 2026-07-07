@@ -1,6 +1,7 @@
 package net.badgersmc.em.interaction
 
 import com.github.stefvanschie.inventoryframework.gui.type.ChestGui
+import org.bukkit.event.inventory.ClickType
 
 /**
  * Block all raw item movement in a menu (anti-dupe).
@@ -37,10 +38,11 @@ fun ChestGui.blockItemTheft() {
  */
 fun ChestGui.blockTopInventoryExcept(vararg placementSlots: Int) {
     val openSlots = placementSlots.toSet()
-    setOnGlobalClick { event ->
-        // Only block clicks inside the GUI's top inventory.  Bottom-inventory
-        // clicks and clicks on open placement slots pass through freely.
-        if (event.rawSlot < event.view.topInventory.size && event.rawSlot !in openSlots) {
+    setOnTopClick { event ->
+        if (event.slot !in openSlots) event.isCancelled = true
+    }
+    setOnBottomClick { event ->
+        if (event.click == ClickType.SHIFT_LEFT || event.click == ClickType.SHIFT_RIGHT) {
             event.isCancelled = true
         }
     }
