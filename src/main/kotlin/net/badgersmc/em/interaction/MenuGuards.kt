@@ -37,7 +37,11 @@ fun ChestGui.blockItemTheft() {
  */
 fun ChestGui.blockTopInventoryExcept(vararg placementSlots: Int) {
     val openSlots = placementSlots.toSet()
-    setOnTopClick { event ->
-        if (event.slot !in openSlots) event.isCancelled = true
+    setOnGlobalClick { event ->
+        // Only block clicks inside the GUI's top inventory.  Bottom-inventory
+        // clicks and clicks on open placement slots pass through freely.
+        if (event.rawSlot < event.view.topInventory.size && event.rawSlot !in openSlots) {
+            event.isCancelled = true
+        }
     }
 }
