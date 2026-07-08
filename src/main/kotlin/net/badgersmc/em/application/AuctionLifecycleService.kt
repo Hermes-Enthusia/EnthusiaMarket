@@ -16,6 +16,8 @@ import net.badgersmc.em.domain.stall.StallId
 import net.badgersmc.em.domain.stall.StallRepository
 import net.badgersmc.em.domain.stall.StallState
 import net.badgersmc.nexus.annotations.Service
+import net.badgersmc.nexus.i18n.LangService
+import org.bukkit.Bukkit
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -66,6 +68,7 @@ sealed class MassAuctionResult {
  * Handles creation, bidding, cancellation, and settlement of expired auctions.
  */
 @Service
+@Suppress("TooManyFunctions", "LongParameterList")
 class AuctionLifecycleService(
     private val auctionRepository: AuctionRepository,
     private val stallRepository: StallRepository,
@@ -75,8 +78,10 @@ class AuctionLifecycleService(
     private val sellOffers: SellOfferRepository,
     private val regionMembers: net.badgersmc.em.domain.ports.RegionMemberSync,
     private val ownership: StallOwnershipCounter,
+    private val ipLimiter: IpLimiter,
     private val schematics: net.badgersmc.em.domain.ports.SchematicService =
         net.badgersmc.em.domain.ports.SchematicService.Disabled,
+    private val lang: LangService,
 ) {
     private val logger = Logger.getLogger(AuctionLifecycleService::class.java.name)
 
@@ -258,13 +263,16 @@ class AuctionLifecycleService(
      * @param auctionId the auction to bid on
      * @param playerUuid the bidder
      * @param amount the bid amount
+     * @param ip the bidder's IP address for rate limiting
      * @return [AuctionResult.Success] with the updated auction, [AuctionResult.Failure],
      *         or [AuctionResult.NotFound]
      */
-    fun placeBid(auctionId: AuctionId, playerUuid: UUID, amount: Long): AuctionResult {
-        val auction = auctionRepository.findById(auctionId)
-            ?: auctionRepository.findOpenByStall(StallId(auctionId.value))
-            ?: return AuctionResult.NotFound
+    fun placeBid(auctionId: AuctionId, playerUuid: UUID, amount: Long, ip: String): AuctionResult {
+        if (!ipLimiter.tryBindAuction(ip, auctionId.value)) {
+            return AuctionResult.Failure("You already have an active bid on another auction.")
+        }
+
+        val auction = findAuction(auctionId) ?: return AuctionResult.NotFound
 
         if (auction.state != AuctionState.OPEN) {
             return AuctionResult.Failure("Auction is not open")
@@ -301,7 +309,8 @@ class AuctionLifecycleService(
         }
 
         persistBidWithRollback(playerUuid, charge, updated, original.id)?.let { return it }
-        refundPreviousBidderIfOutbid(previousBid, playerUuid, original.id)
+        val bidderName = safePlayerName(playerUuid)
+        refundPreviousBidderIfOutbid(previousBid, playerUuid, original.id, original.stallId, amount, bidderName)
         return AuctionResult.Success(updated)
     }
 
@@ -318,6 +327,14 @@ class AuctionLifecycleService(
         val charge = if (previousBid?.bidder == playerUuid) amount - previousBid.amount else amount
         return charge.takeIf { it > 0L }
     }
+
+    /**
+     * Look up an auction by ID, falling back to stall-ID match.
+     * Extracted from [placeBid] to keep complexity within Lizard limits.
+     */
+    private fun findAuction(auctionId: AuctionId) =
+        auctionRepository.findById(auctionId)
+            ?: auctionRepository.findOpenByStall(StallId(auctionId.value))
 
     /**
      * Persist the updated auction and roll back the charge on failure.
@@ -347,12 +364,19 @@ class AuctionLifecycleService(
         previousBid: Bid?,
         playerUuid: UUID,
         auctionId: AuctionId,
+        stallId: StallId,
+        newAmount: Long,
+        newBidderName: String,
     ) {
         if (previousBid != null && previousBid.bidder != playerUuid) {
             refundOrLog(
                 previousBid.bidder,
                 previousBid.amount,
                 "previous high-bidder refund after outbid on auction $auctionId",
+            )
+            // Notify the outbid player if online
+            runCatching { Bukkit.getPlayer(previousBid.bidder) }.getOrNull()?.sendMessage(
+                lang.msg("auction.outbid", "stall" to stallId.value, "amount" to newAmount, "bidder" to newBidderName)
             )
         }
     }
@@ -386,6 +410,7 @@ class AuctionLifecycleService(
 
         val closed = auction.close()
         auctionRepository.save(closed)
+        ipLimiter.releaseAuctionBindings(auction.id.value)
         auction.highBid?.let {
             refundOrLog(it.bidder, it.amount, "cancelAuction refund for auction ${auction.id}")
         }
@@ -432,6 +457,7 @@ class AuctionLifecycleService(
             auction.highBid?.let {
                 refundOrLog(it.bidder, it.amount, "cancelAllAuctions refund for auction ${auction.id}")
             }
+            ipLimiter.releaseAuctionBindings(auction.id.value)
             revertSystemAuctionedStall(auction, auctioningStates)
             true
         } catch (e: Exception) {
@@ -501,6 +527,7 @@ class AuctionLifecycleService(
                     auctionRepository.save(auction.close())
                 }
                 settled++
+                ipLimiter.releaseAuctionBindings(auction.id.value)
             } catch (e: Exception) {
                 errors++
             }
@@ -608,6 +635,11 @@ class AuctionLifecycleService(
         }
         fireStateChanged(stall.id.value, stall.state, updatedStall.state)
 
+        // Notify the winner if online
+        runCatching { Bukkit.getPlayer(bid.bidder) }.getOrNull()?.sendMessage(
+            lang.msg("auction.won", "stall" to stall.id.value, "amount" to bid.amount)
+        )
+
         // 2. Sync region AFTER persist (best-effort).
         // If this fails, the DB is correct; /em rg resync can fix WG.
         try {
@@ -696,6 +728,10 @@ class AuctionLifecycleService(
             null
         }
     }
+
+    /** Resolve a player name safely (returns "Unknown" when Bukkit isn't available in tests). */
+    private fun safePlayerName(uuid: UUID): String =
+        runCatching { Bukkit.getOfflinePlayer(uuid).name }.getOrNull() ?: "Unknown"
 
     /**
      * Fire-and-forget StallStateChangedEvent. Bukkit may be unavailable
