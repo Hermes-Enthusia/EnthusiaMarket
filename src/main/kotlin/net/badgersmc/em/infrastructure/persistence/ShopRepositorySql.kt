@@ -194,9 +194,15 @@ class ShopRepositorySql(private val ds: DataSource) : ShopRepository {
     private fun extractMaterial(base64: String): String? {
         return try {
             val bytes = java.util.Base64.getDecoder().decode(base64)
-            val stream = java.io.ByteArrayInputStream(bytes)
-            val item = org.bukkit.util.io.BukkitObjectInputStream(stream).readObject() as org.bukkit.inventory.ItemStack
-            item.type.name
+            // Try modern Paper data-component format first (serializeAsBytes output)
+            runCatching { org.bukkit.inventory.ItemStack.deserializeBytes(bytes) }
+                .getOrNull()?.type?.name?.let { return it }
+            // Fall back to legacy Java-serialized format (pre-Paper 1.20.5)
+            java.io.ByteArrayInputStream(bytes).use { stream ->
+                org.bukkit.util.io.BukkitObjectInputStream(stream).use { ois ->
+                    (ois.readObject() as org.bukkit.inventory.ItemStack).type.name
+                }
+            }
         } catch (_: Exception) { null }
     }
 
