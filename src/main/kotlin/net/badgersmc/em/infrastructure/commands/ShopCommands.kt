@@ -9,6 +9,7 @@ import net.badgersmc.em.application.ShopSignRenderer
 import net.badgersmc.em.application.ShopVaultService
 import net.badgersmc.em.domain.shop.ShopRepository
 import net.badgersmc.em.domain.shop.ShopTransactionRepository
+import net.badgersmc.em.domain.stall.StallRepository
 import net.badgersmc.nexus.commands.annotations.Command
 import net.badgersmc.nexus.commands.annotations.Context
 import net.badgersmc.nexus.i18n.LangService
@@ -32,6 +33,7 @@ class ShopCommands(
     private val signRenderer: ShopSignRenderer,
     private val lang: LangService,
     private val vaultService: ShopVaultService,
+    private val stallRepository: StallRepository,
 ) {
     @Subcommand("list")
     @Permission("enthusiamarket.shop.use")
@@ -156,7 +158,7 @@ class ShopCommands(
         if (material != null) {
             val results = shopRepository.findBySellMaterial(material.name)
             if (results.isNotEmpty()) {
-                net.badgersmc.em.interaction.gui.SearchResultsMenu(results, query, 1, lang).open(player)
+                net.badgersmc.em.interaction.gui.SearchResultsMenu(results, query, 1, lang, stallRepository).open(player)
                 return
             }
         }
@@ -164,7 +166,7 @@ class ShopCommands(
         if (query.length >= 2) {
             val prefixResults = shopRepository.findBySellMaterialPrefix(query.uppercase())
             if (prefixResults.isNotEmpty()) {
-                net.badgersmc.em.interaction.gui.SearchResultsMenu(prefixResults, query, 1, lang).open(player)
+                net.badgersmc.em.interaction.gui.SearchResultsMenu(prefixResults, query, 1, lang, stallRepository).open(player)
                 return
             }
         }
