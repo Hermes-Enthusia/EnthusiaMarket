@@ -24,6 +24,15 @@ object ItemStackMatch {
             .filter { bytesMatch(it, templateBytes) }
             .sumOf { it.amount }
 
+    /** Counts inventory items matching [template] via [ItemStack.isSimilar],
+     *  which compares material, damage, and ItemMeta (enchantments, name, lore)
+     *  but ignores repair cost. Use for enchanted items where users may have
+     *  anvilled/merged stacks with different repair costs on the same item. */
+    fun countSimilar(inventory: Inventory, template: ItemStack): Int =
+        inventory.contents.filterNotNull()
+            .filter { it.isSimilar(template) }
+            .sumOf { it.amount }
+
     fun containsAtLeast(inventory: Inventory, template: ItemStack, amount: Int): Boolean =
         countIn(inventory, template) >= amount
 
