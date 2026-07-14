@@ -28,7 +28,6 @@ class FindItemCommand(
     private val transactions: ShopTransactionRepository,
     private val lang: LangService,
 ) {
-    @net.badgersmc.nexus.paper.commands.annotations.Subcommand("")
     @Permission("enthusiamarket.shop.use")
     fun find(
         @Context sender: CommandSender,
