@@ -158,20 +158,36 @@ class ShopCommands(
         // Exact match first, then prefix fallback for partial queries (2+ chars)
         if (material != null) {
             val results = shopRepository.findBySellMaterial(material.name)
+                .sortedBy { it.costAmount } // cheapest first → drives market competition
             if (results.isNotEmpty()) {
-                net.badgersmc.em.interaction.gui.SearchResultsMenu(results, query, 1, lang, stallRepository).open(player)
+                val ticker = priceTicker(material.name)
+                net.badgersmc.em.interaction.gui.SearchResultsMenu(
+                    results, query, 1, lang, stallRepository, ticker.first, ticker.second,
+                ).open(player)
                 return
             }
         }
         // Prefix fallback
         if (query.length >= 2) {
             val prefixResults = shopRepository.findBySellMaterialPrefix(query.uppercase())
+                .sortedBy { it.costAmount }
             if (prefixResults.isNotEmpty()) {
-                net.badgersmc.em.interaction.gui.SearchResultsMenu(prefixResults, query, 1, lang, stallRepository).open(player)
+                val ticker = priceTicker(query.uppercase())
+                net.badgersmc.em.interaction.gui.SearchResultsMenu(
+                    prefixResults, query, 1, lang, stallRepository, ticker.first, ticker.second,
+                ).open(player)
                 return
             }
         }
         player.sendMessage(lang.msg("shop.cmd.search.none", "query" to query))
+    }
+
+    private fun priceTicker(item: String): Pair<net.badgersmc.em.domain.shop.PriceStats?, net.badgersmc.em.domain.shop.PriceStats?> {
+        val now = System.currentTimeMillis()
+        val dayMs = 24 * 60 * 60 * 1000L
+        val current = transactions.avgPriceInWindow(item, now - dayMs, now)
+        val previous = transactions.avgPriceInWindow(item, now - 2 * dayMs, now - dayMs)
+        return current to previous
     }
 
     @Subcommand("history")

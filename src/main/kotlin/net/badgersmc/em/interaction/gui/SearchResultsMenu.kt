@@ -6,6 +6,7 @@ import com.github.stefvanschie.inventoryframework.gui.type.ChestGui
 import net.badgersmc.em.interaction.blockItemTheft
 import com.github.stefvanschie.inventoryframework.pane.StaticPane
 import net.badgersmc.em.application.ItemStackSerializer
+import net.badgersmc.em.domain.shop.PriceStats
 import net.badgersmc.em.domain.shop.Shop
 import net.badgersmc.em.domain.stall.StallId
 import net.badgersmc.em.domain.stall.StallRepository
@@ -16,13 +17,17 @@ import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
+import kotlin.math.abs
 
 /**
  * Paginated /shop search results. The first five rows (45 slots) hold result
  * icons for the requested page; the bottom row holds prev/next navigation when
- * more pages exist. Each icon = the sell item; lore shows owner + stall + trade
- * + live trades-available (container stock / sellAmount). Clicking an icon
- * pastes the shop's coords into chat (teleport is the admin verb, SP5).
+ * more pages exist and a price-ticker icon (green dye). Each icon = the sell
+ * item; lore shows owner + stall + trade + live trades-available (container
+ * stock / sellAmount). Clicking an icon pastes the shop's coords into chat
+ * (teleport is the admin verb, SP5).
+ *
+ * Results are pre-sorted cheapest-first by the caller to drive market competition.
  */
 class SearchResultsMenu(
     private val results: List<Shop>,
@@ -30,6 +35,8 @@ class SearchResultsMenu(
     private val page: Int,
     private val lang: LangService,
     private val stallRepository: StallRepository,
+    private val priceNow: PriceStats? = null,
+    private val pricePrevious: PriceStats? = null,
 ) : Menu {
 
     @Suppress("LongMethod")
@@ -94,19 +101,56 @@ class SearchResultsMenu(
         if (current > 1) {
             pane.addItem(GuiItem(named(Material.ARROW, lang.msg("gui.shop.search.prev"))) {
                 it.isCancelled = true
-                SearchResultsMenu(results, query, current - 1, lang, stallRepository).open(player)
+                SearchResultsMenu(results, query, current - 1, lang, stallRepository, priceNow, pricePrevious).open(player)
             }, 0, ROWS - 1)
         }
         if (current < totalPages) {
             pane.addItem(GuiItem(named(Material.ARROW, lang.msg("gui.shop.search.next"))) {
                 it.isCancelled = true
-                SearchResultsMenu(results, query, current + 1, lang, stallRepository).open(player)
+                SearchResultsMenu(results, query, current + 1, lang, stallRepository, priceNow, pricePrevious).open(player)
             }, 8, ROWS - 1)
         }
+
+        // Price ticker icon (green dye) — bottom-right corner
+        pane.addItem(GuiItem(tickerIcon()) {
+            it.isCancelled = true
+        }, 7, ROWS - 1)
 
         gui.addPane(pane)
         gui.blockItemTheft()
         gui.show(player)
+    }
+
+    private fun tickerIcon(): ItemStack {
+        val item = ItemStack(Material.GREEN_DYE)
+        val meta = item.itemMeta ?: return item
+
+        val name = lang.msg("gui.shop.search.ticker_name")
+        meta.displayName(name)
+
+        val lore = mutableListOf<Component>()
+        if (priceNow != null) {
+            lore += lang.msg("gui.shop.search.ticker_lore_avg",
+                "avg" to "%.1f".format(priceNow.avgPrice),
+                "count" to priceNow.sampleCount,
+            )
+        }
+
+        if (priceNow != null && pricePrevious != null && pricePrevious.avgPrice > 0) {
+            val changePct = ((priceNow.avgPrice - pricePrevious.avgPrice) / pricePrevious.avgPrice) * 100
+            val changeKey = when {
+                changePct > 0.1 -> "gui.shop.search.ticker_lore_up"
+                changePct < -0.1 -> "gui.shop.search.ticker_lore_down"
+                else -> "gui.shop.search.ticker_lore_flat"
+            }
+            lore += lang.msg(changeKey, "change" to "%.1f".format(abs(changePct)))
+        } else {
+            lore += lang.msg("gui.shop.search.ticker_lore_no_data")
+        }
+
+        meta.lore(lore)
+        item.itemMeta = meta
+        return item
     }
 
     private fun named(material: Material, name: Component): ItemStack {
