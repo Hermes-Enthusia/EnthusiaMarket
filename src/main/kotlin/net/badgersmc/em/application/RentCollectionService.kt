@@ -5,6 +5,7 @@ import net.badgersmc.em.domain.auction.Auction
 import net.badgersmc.em.domain.auction.AuctionId
 import net.badgersmc.em.domain.auction.AuctionRepository
 import net.badgersmc.em.domain.auction.AuctionState
+import net.badgersmc.em.domain.stall.OwnerRef
 import net.badgersmc.em.domain.stall.OwnerType
 import net.badgersmc.em.domain.stall.Stall
 import net.badgersmc.em.domain.stall.StallRepository
@@ -74,6 +75,16 @@ class RentCollectionService(
             } catch (e: Exception) {
                 errors++
             }
+        }
+
+        // Recover stalls stuck in EMERGENCY_AUCTIONING with no OPEN auction.
+        // Fixed by PR #182 (emergency revert paths now clear owner), but stalls
+        // that were stuck before the fix was deployed are still orphaned.
+        // On each tick, scan and revert them. Idempotent — stalls with an
+        // active OPEN auction are left alone.
+        val recovered = recoverOrphanedEmergencyStalls()
+        if (recovered > 0) {
+            log.info("RentCollectionService: recovered $recovered orphaned emergency-auction stall(s)")
         }
 
         return RentReport(
@@ -185,6 +196,31 @@ class RentCollectionService(
     private fun isPastGrace(graceStartedAt: Instant, now: Instant): Boolean {
         val deadline = graceStartedAt.plus(RentTimingPolicy.gracePeriod(config))
         return now.isAfter(deadline)
+    }
+
+    /** Recover stalls stuck in EMERGENCY_AUCTIONING whose auction was closed
+     *  without reverting the stall (pre-#182 bug). Returns count of recovered
+     *  stalls. Idempotent — stalls with an active OPEN auction are skipped. */
+    private fun recoverOrphanedEmergencyStalls(): Int {
+        var recovered = 0
+        for (stall in stallRepository.all()) {
+            if (stall.state != StallState.EMERGENCY_AUCTIONING) continue
+            val openAuction = auctionRepository.findOpenByStall(stall.id)
+            if (openAuction != null) continue // has active auction, skip
+            try {
+                stallRepository.save(stall.copy(
+                    state = StallState.UNOWNED,
+                    owner = OwnerRef.unowned(),
+                ))
+                recovered++
+            } catch (e: Exception) {
+                log.warning(
+                    "RentCollectionService: failed to recover orphaned emergency stall " +
+                        "${stall.id.value}: ${e.message}"
+                )
+            }
+        }
+        return recovered
     }
 
     private sealed class ProcessResult {
