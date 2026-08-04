@@ -11,9 +11,7 @@ import net.badgersmc.nexus.i18n.LangService
 import net.badgersmc.nexus.annotations.Component
 import net.badgersmc.nexus.paper.listeners.Listener
 import org.bukkit.Bukkit
-import org.bukkit.block.Chest
 import org.bukkit.block.Container
-import org.bukkit.block.DoubleChest
 import org.bukkit.block.Sign
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
@@ -155,25 +153,22 @@ class ContainerStockListener(
         val block = world.getBlockAt(shop.containerX, shop.containerY, shop.containerZ)
 
         // getState(false) sets DISABLE_SNAPSHOT_TL so the state wraps the LIVE tile
-        // entity — no NBT round-trip (spark: block.state snapshot was ~50% server
+        // entity — no NBT round-trip (spark #1: block.state snapshot was ~50% server
         // thread at ~300 shops; CraftChest.<init> → createSnapshot() → loadAllItems()
         // decode + saveWithFullMetadata() re-encode).
+        //
+        // IMPORTANT: use state.inventory, NOT blockInventory.holder. Inventory.getHolder()
+        // → BlockEntity.getOwner() → CraftBlock.getState() recreates the snapshot
+        // (spark #2: 33% server thread). CraftChest.getInventory() already merges
+        // double-chest halves internally (ChestBlock.getMenuProvider → DoubleInventory →
+        // CraftInventoryDoubleChest), so no holder lookup is needed.
         //
         // Type-check the STATE (not a material allow-list) so EVERY container type
         // accepted at placement (SignPlaceListener: `attached.state is Container`)
         // and by ContainerTradeService.getContainer() is covered — chests, barrels,
         // shulker boxes, crafter, etc. Non-containers resolve to a plain state and
         // return null cheaply (no snapshot, no NBT).
-        val state = block.getState(false)
-        return when (state) {
-            is Chest -> {
-                val singleInv = state.blockInventory       // Paper API — live
-                val holder = singleInv.holder
-                if (holder is DoubleChest) holder.inventory else singleInv
-            }
-            is Container -> state.inventory
-            else -> null
-        }
+        return (block.getState(false) as? Container)?.inventory
     }
 
     private fun rawStockOf(inventory: Inventory, shop: Shop): Int {

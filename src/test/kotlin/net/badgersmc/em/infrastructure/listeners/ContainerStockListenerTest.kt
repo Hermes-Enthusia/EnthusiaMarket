@@ -14,7 +14,6 @@ import org.bukkit.World
 import org.bukkit.block.Block
 import org.bukkit.block.Chest
 import org.bukkit.block.Container
-import org.bukkit.block.DoubleChest
 import org.bukkit.block.Sign
 import org.bukkit.event.Event
 import org.bukkit.inventory.Inventory
@@ -417,7 +416,6 @@ class ContainerStockListenerTest {
         every { liveInv.storageContents } returns arrayOf(contItem)
         val chest = mockk<Chest>(relaxed = true)
         every { chest.inventory } returns liveInv
-        every { chest.blockInventory } returns liveInv            // live half-inventory
         val chestBlock = mockk<Block>(relaxed = true)
         every { chestBlock.type } returns Material.CHEST
         // Deliberately NO `block.state` stub — see mockSignAt comment.
@@ -452,17 +450,14 @@ class ContainerStockListenerTest {
 
         val sign = mockSignAt(world)
 
-        // Container.inventory on a double chest half returns full 54-slot inventory.
+        // Container.inventory on a double chest half returns full 54-slot inventory —
+        // CraftChest.getInventory() merges halves internally (no holder lookup).
         val combinedInv = mockk<Inventory>(relaxed = true)
         every { combinedInv.contents } returns arrayOf(leftItem, rightItem)
         every { combinedInv.storageContents } returns arrayOf(leftItem, rightItem)
 
-        val doubleChest = mockk<DoubleChest>(relaxed = true)
-        every { doubleChest.inventory } returns combinedInv
         val chest = mockk<Chest>(relaxed = true)
-        every { chest.blockInventory } returns mockk<Inventory>(relaxed = true).also {
-            every { it.holder } returns doubleChest
-        }
+        every { chest.inventory } returns combinedInv
         val chestBlock = mockk<Block>(relaxed = true)
         every { chestBlock.type } returns Material.CHEST
         // Deliberately NO `block.state` stub — see mockSignAt comment.
